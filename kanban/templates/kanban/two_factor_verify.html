@@ -1,0 +1,29 @@
+{% extends 'kanban/base.html' %}
+{% load static %}
+
+{% block title %}Verificación 2FA{% endblock %}
+{% block body_style %}background: #0f172a;{% endblock %}
+
+{% block content %}
+<div class="login-container">
+    <div class="login-box">
+        <h1>Verificación en dos pasos</h1>
+        <p class="info-text">Introduce el código de 6 dígitos generado por tu aplicación de autenticación para <strong>{{ username }}</strong>.</p>
+        {% if error_message %}
+        <div class="error-message">{{ error_message }}</div>
+        {% endif %}
+        <form method="post" action="{%- url 'kanban:two_factor_verify' -%}">
+            {% csrf_token %}
+            <div class="form-group">
+                <label for="code">Código 2FA:</label>
+                <input type="text" id="code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autofocus>
+            </div>
+            <button type="submit" class="btn-login">Verificar</button>
+        </form>
+        <div class="two-factor-help">
+            <p>¿Problemas para acceder? Contacta a un administrador para restablecer tu 2FA.</p>
+            <a class="two-factor-back" href="{%- url 'kanban:login' -%}">Volver al inicio de sesión</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,68 @@
+{% extends 'kanban/base.html' %}
+{% load static %}
+
+{% block title %}Configuración 2FA{% endblock %}
+
+{% block content %}
+<div class="settings-container">
+    <div class="settings-box">
+        <div class="two-factor-header">
+            <h1>Autenticación de Dos Pasos (TOTP)</h1>
+            <a class="btn-back-board" href="{% url 'kanban:board' %}">⬅ Volver al tablero</a>
+        </div>
+
+        {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+            <div class="message message-{{ message.tags }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <section class="two-factor-status">
+            <h2>Estado actual</h2>
+            <p>2FA: <strong>{% if profile.enabled %}Activo{% else %}Inactivo{% endif %}</strong></p>
+            <p>Escanea el código QR o ingresa el siguiente código secreto en tu aplicación de autenticación:</p>
+            <div class="two-factor-secret">
+                <code>{{ profile.secret }}</code>
+            </div>
+            <div class="two-factor-qr">
+                <img src="{{ qr_code_data_uri }}" alt="Código QR 2FA" />
+            </div>
+            <p class="provisioning-uri">URI de configuración (para importar manualmente):</p>
+            <textarea class="provisioning-text" readonly>{{ provisioning_uri }}</textarea>
+        </section>
+
+        <section class="two-factor-actions">
+            <h2>Acciones</h2>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="enable">
+                <div class="form-group">
+                    <label for="code">Introduce un código generado por tu app para confirmar:</label>
+                    <input type="text" id="code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="000000">
+                </div>
+                <button type="submit" class="btn-submit">Habilitar 2FA</button>
+            </form>
+
+            <form method="post" class="inline-form">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="regenerate">
+                <button type="submit" class="btn-secondary">Generar nuevo secreto</button>
+            </form>
+
+            {% if profile.enabled %}
+            <form method="post" class="inline-form" onsubmit="return confirm('¿Seguro que deseas deshabilitar 2FA?');">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="disable">
+                <button type="submit" class="btn-danger">Deshabilitar 2FA</button>
+            </form>
+            {% endif %}
+        </section>
+
+        <div class="two-factor-help">
+            <p>Los códigos caducan cada {{ totp_interval }} segundos. Si cambias el secreto, vuelve a escanear el QR antes de habilitar 2FA.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

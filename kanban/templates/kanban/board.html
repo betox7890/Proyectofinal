@@ -1,0 +1,2665 @@
+{% extends 'kanban/base.html' %}
+{% load static %}
+
+{% block body_class %}board-page{% endblock %}
+{% block body_style %}--board-overlay-color: {{ board_overlay_color }}; --board-background-image: url('{{ board_background_image }}');{% endblock %}
+
+{% block title %}Tablero Kanban{% endblock %}
+
+{% block content %}
+<div class="board-container">
+    <div class="board-header">
+        <h1>Tablero Kanban</h1>
+        <div class="user-info">
+            <span>Usuario: {{ user.username }} - <strong>{{ user_type }}</strong>{% if is_invited %} (Invitado){% endif %}</span>
+            {% if can_delete %}
+            <button class="btn-invite" onclick="showInviteModal()" title="Invitar Estudiantes">📧 Invitar</button>
+            <button class="btn-create-user" onclick="showCreateUserModal()" title="Crear Usuario">➕ Usuario</button>
+            <button class="btn-board-color" onclick="showBoardColorModal()" title="Cambiar color del tablero">🎨 Color</button>
+            <a href="{% url 'kanban:calendar' %}" class="btn-calendar" title="Ver calendario">📅 Calendario</a>
+            <a href="{% url 'kanban:system_logs' %}" class="btn-calendar" title="Ver registros del sistema">🪵 Logs</a>
+            {% endif %}
+            <a href="{% url 'kanban:two_factor_setup' %}" class="btn-calendar" title="Configurar autenticación de dos pasos">
+                🔐 2FA{% if two_factor_enabled %} (Activo){% else %} (Inactivo){% endif %}
+            </a>
+            {% if can_view_activities %}
+            <button class="btn-activities" data-base-label="📋 Actividades" onclick="showActivitiesModal()" title="Ver Actividades">
+                📋 Actividades
+            </button>
+            {% endif %}
+            {% if pending_invitations %}
+            <button class="btn-invitations" onclick="showInvitationsModal()" title="Ver Invitaciones">
+                📬 Invitaciones ({{ pending_invitations.count }})
+            </button>
+            {% endif %}
+            <a href="{% url 'kanban:logout' %}" class="btn-logout">Cerrar Sesión</a>
+        </div>
+    </div>
+    
+    <input type="hidden" id="csrf-token" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+
+    <form class="board-filters" method="get">
+        <div class="filter-row">
+            <div class="filter-group">
+                <label for="filter-q">Buscar tarea</label>
+                <input id="filter-q" type="text" name="q" value="{{ filters.q }}" placeholder="Nombre de la tarea">
+            </div>
+            <div class="filter-group">
+                <label for="filter-creator">Responsable</label>
+                <select id="filter-creator" name="creator">
+                    <option value="">Todos</option>
+                    <option value="none" {% if filters.creator == 'none' %}selected{% endif %}>Sin responsable</option>
+                    {% for creator in creators %}
+                    <option value="{{ creator.id }}" {% if filters.creator == creator.id|stringformat:"s" %}selected{% endif %}>{{ creator.username }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="filter-due-from">Vence desde</label>
+                <input id="filter-due-from" type="date" name="due_from" value="{{ filters.due_from }}">
+            </div>
+            <div class="filter-group">
+                <label for="filter-due-to">Vence hasta</label>
+                <input id="filter-due-to" type="date" name="due_to" value="{{ filters.due_to }}">
+            </div>
+            <div class="filter-actions">
+                <button type="submit" class="btn-filter">Filtrar</button>
+                {% if has_filters %}
+                <a href="{{ request.path }}" class="btn-clear-filter">Limpiar</a>
+                {% endif %}
+            </div>
+        </div>
+        {% if has_filters %}
+        <p class="filter-summary">Resultados: {{ total_filtered_tasks }} tarea{% if total_filtered_tasks != 1 %}s{% endif %}</p>
+        {% endif %}
+    </form>
+
+    {% if has_filters and total_filtered_tasks == 0 %}
+    <div class="filter-empty">No se encontraron tareas con los filtros seleccionados.</div>
+    {% endif %}
+
+    <div class="board-lists" id="board-lists">
+        {% for list in lists %}
+        <div class="list-column list-{{ list.color }} draggable-list" 
+             data-list-id="{{ list.id }}">
+            <div class="list-header draggable-list-header" 
+                 draggable="true"
+                 ondragstart="handleListDragStart(event, {{ list.id }})"
+                 ondragend="handleListDragEnd(event)">
+                <h2 class="list-title list-title-{{ list.color }}">{{ list.name }}
+                    {% if list.created_by %}
+                    <span class="creator-tag">- {{ list.created_by.username }}</span>
+                    {% else %}
+                    <span class="creator-tag">- Administrador</span>
+                    {% endif %}
+                </h2>
+                <div class="list-actions">
+                    <span class="icon-resize">⇄</span>
+                    <button class="btn-menu-list" onclick="event.preventDefault(); event.stopPropagation(); showColorPickerModal({{ list.id }});" title="Cambiar Color" style="background: transparent !important; background-color: transparent !important; border: none !important; outline: none !important; box-shadow: none !important;">
+                        <span class="icon-paintbrush">🖌️</span>
+                    </button>
+                    {% if can_delete %}
+                    <button class="btn-delete-list" onclick="event.preventDefault(); event.stopPropagation(); deleteList({{ list.id }});" title="Eliminar Lista" style="background: transparent !important; background-color: transparent !important; border: none !important; outline: none !important; box-shadow: none !important;">
+                        <span class="icon-delete">✕</span>
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="list-cards" 
+                 data-list-id="{{ list.id }}"
+                 ondrop="handleDrop(event, {{ list.id }}); return false;" 
+                 ondragover="handleListDragOver(event, {{ list.id }}); return false;">
+                <div class="tasks-container" 
+                     data-list-id="{{ list.id }}"
+                     style="flex: 1;"
+                     ondrop="event.stopPropagation(); handleDrop(event, {{ list.id }}); return false;"
+                     ondragover="event.stopPropagation(); handleListDragOver(event, {{ list.id }}); return false;">
+                {% if list.filtered_tasks %}
+                    {% for task in list.filtered_tasks %}
+                    <div class="card draggable-task" 
+                         draggable="true" 
+                         data-task-id="{{ task.id }}"
+                         data-list-id="{{ list.id }}"
+                         ondragstart="handleTaskDragStart(event, {{ task.id }}, {{ list.id }})"
+                         ondragend="handleTaskDragEnd(event)">
+                        <div class="card-content">
+                            <span class="card-title">{{ task.title }}
+                                {% if task.created_by %}
+                                <span class="creator-tag">- {{ task.created_by.username }}</span>
+                                {% else %}
+                                <span class="creator-tag">- Administrador</span>
+                                {% endif %}
+                            </span>
+                        </div>
+                        <div class="task-meta">
+                            <label class="due-date-label">Vence:</label>
+                            <input type="date" class="due-date-input" value="{{ task.due_date|date:'Y-m-d' }}" onchange="updateTaskDueDate({{ task.id }}, this.value)">
+                        </div>
+                        <div class="attachments-section">
+                            <div class="attachments-header">
+                                <span class="attachments-title">
+                                    📎 Archivos (<span class="attachments-count">{{ task.attachments.all|length }}</span>)
+                                </span>
+                                <div class="attachments-actions">
+                                    <span class="attachment-hint">Máx {{ attachment_max_size_mb }} MB</span>
+                                    <input type="file"
+                                           id="task-attachment-input-{{ task.id }}"
+                                           class="attachment-input"
+                                           onchange="handleTaskAttachmentUpload(event, {{ task.id }})"
+                                           multiple
+                                           hidden>
+                                    <button class="btn-attachment-upload" onclick="triggerTaskAttachmentUpload({{ task.id }})" title="Adjuntar archivo">
+                                        Adjuntar
+                                    </button>
+                                </div>
+                            </div>
+                            <ul class="attachments-list">
+                                {% for attachment in task.attachments.all %}
+                                <li class="attachment-item">
+                                    <div class="attachment-info">
+                                        <a href="{{ attachment.file.url }}" target="_blank" rel="noopener noreferrer" class="attachment-link">
+                                            {{ attachment.filename }}
+                                        </a>
+                                        <span class="attachment-meta">
+                                            {% if attachment.uploaded_by %}
+                                            por {{ attachment.uploaded_by.username }}
+                                            {% else %}
+                                            por Administrador
+                                            {% endif %}
+                                            · {{ attachment.uploaded_at|date:"d/m/Y H:i" }}
+                                        </span>
+                                    </div>
+                                    {% if can_delete %}
+                                    <button class="btn-attachment-delete" onclick="deleteTaskAttachment({{ attachment.id }})" title="Eliminar adjunto">
+                                        ✕
+                                    </button>
+                                    {% endif %}
+                                </li>
+                                {% empty %}
+                                <li class="attachment-empty">No hay archivos adjuntos</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        <div class="card-actions">
+                            <button class="btn-card-edit" onclick="showEditTaskForm({{ task.id }}, '{{ task.title|escapejs }}')" title="Editar">
+                                ✏️
+                            </button>
+                            {% if can_delete %}
+                            <button class="btn-card-delete" onclick="deleteTask({{ task.id }})" title="Eliminar">
+                                🗑️
+                            </button>
+                            {% endif %}
+                        </div>
+
+                        <!-- Sección de subtareas -->
+                        <div class="subtasks-section">
+                            <div class="subtasks-header" onclick="toggleSubtasks({{ task.id }})">
+                                <span class="subtasks-title">
+                                    Subtareas (<span class="subtasks-count">{{ task.subtasks.count }}</span>)
+                                </span>
+                                {% if task.created_by %}
+                                <span class="creator-tag">- {{ task.created_by.username }}</span>
+                                {% else %}
+                                <span class="creator-tag">- Administrador</span>
+                                {% endif %}
+                                <span class="subtasks-toggle" id="toggle-{{ task.id }}">▼</span>
+                            </div>
+                            <div class="subtasks-list" 
+                                 id="subtasks-{{ task.id }}" 
+                                 data-task-id="{{ task.id }}"
+                                 ondrop="handleSubtaskDrop(event, {{ task.id }})" 
+                                 ondragover="handleDragOver(event)"
+                                 style="display: none;">
+                                {% for subtask in task.subtasks.all %}
+                                <div class="subtask-item draggable-subtask" 
+                                     draggable="true"
+                                     data-subtask-id="{{ subtask.id }}"
+                                     data-task-id="{{ task.id }}"
+                                     ondragstart="handleSubtaskDragStart(event, {{ subtask.id }}, {{ task.id }})"
+                                     ondragend="handleSubtaskDragEnd(event)">
+                                    <div class="subtask-main">
+                                        <input type="checkbox" 
+                                               class="subtask-checkbox" 
+                                               {% if subtask.completed %}checked{% endif %}
+                                               onchange="toggleSubtask({{ subtask.id }}, this.checked)">
+                                        <span class="subtask-title {% if subtask.completed %}completed{% endif %}"
+                                              onclick="showEditSubtaskForm({{ subtask.id }}, '{{ subtask.title|escapejs }}')">
+                                            {{ subtask.title }}
+                                            {% if subtask.created_by %}
+                                            <span class="creator-tag">- {{ subtask.created_by.username }}</span>
+                                            {% else %}
+                                            <span class="creator-tag">- Administrador</span>
+                                            {% endif %}
+                                        </span>
+                                        {% if can_delete %}
+                                        <button class="btn-subtask-delete" onclick="deleteSubtask({{ subtask.id }})" title="Eliminar subtarea">
+                                            🗑️
+                                        </button>
+                                        {% endif %}
+                                    </div>
+                                    <div class="subtask-meta">
+                                        <label class="due-date-label">Vence:</label>
+                                        <input type="date" class="due-date-input" value="{{ subtask.due_date|date:'Y-m-d' }}" onchange="updateSubtaskDueDate({{ subtask.id }}, this.value)">
+                                    </div>
+                                    <div class="subtask-attachments">
+                                        <div class="subtask-attachments-header">
+                                            <span class="attachments-title">📎 Adjuntos ({{ subtask.attachments.all|length }})</span>
+                                            <div class="attachments-actions">
+                                                <span class="attachment-hint">Máx {{ attachment_max_size_mb }} MB</span>
+                                                <input type="file"
+                                                       id="subtask-attachment-input-{{ subtask.id }}"
+                                                       class="attachment-input"
+                                                       onchange="handleSubtaskAttachmentUpload(event, {{ subtask.id }})"
+                                                       multiple
+                                                       hidden>
+                                                <button class="btn-attachment-upload" onclick="triggerSubtaskAttachmentUpload({{ subtask.id }})" title="Adjuntar archivo a la subtarea">
+                                                    Adjuntar
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <ul class="attachments-list attachments-list-compact">
+                                            {% for attachment in subtask.attachments.all %}
+                                            <li class="attachment-item">
+                                                <div class="attachment-info">
+                                                    <a href="{{ attachment.file.url }}" target="_blank" rel="noopener noreferrer" class="attachment-link">
+                                                        {{ attachment.filename }}
+                                                    </a>
+                                                    <span class="attachment-meta">
+                                                        {% if attachment.uploaded_by %}
+                                                        por {{ attachment.uploaded_by.username }}
+                                                        {% else %}
+                                                        por Administrador
+                                                        {% endif %}
+                                                        · {{ attachment.uploaded_at|date:"d/m/Y H:i" }}
+                                                    </span>
+                                                </div>
+                                                {% if can_delete %}
+                                                <button class="btn-attachment-delete" onclick="deleteSubtaskAttachment({{ attachment.id }})" title="Eliminar adjunto">
+                                                    ✕
+                                                </button>
+                                                {% endif %}
+                                            </li>
+                                            {% empty %}
+                                            <li class="attachment-empty">Sin adjuntos</li>
+                                            {% endfor %}
+                                        </ul>
+                                    </div>
+                                </div>
+                                {% empty %}
+                                <div class="subtask-empty">No hay subtareas</div>
+                                {% endfor %}
+                                <button class="btn-add-subtask" onclick="showAddSubtaskForm({{ task.id }})">
+                                    + Añadir subtarea
+                                </button>
+                            </div>
+                        </div>
+
+                        {% if lists|length > 1 %}
+                        <div class="card-move">
+                            <select onchange="moveTask({{ task.id }}, this.value, {{ list.id }})" class="move-select">
+                                <option value="">Mover a...</option>
+                                {% for other_list in lists %}
+                                    {% if other_list.id != list.id %}
+                                    <option value="{{ other_list.id }}">{{ other_list.name }}</option>
+                                    {% endif %}
+                                {% endfor %}
+                            </select>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="tasks-empty">{% if has_filters %}Sin coincidencias{% else %}No hay tareas{% endif %}</div>
+                {% endif %}
+                </div>
+                
+                <button class="btn-add-card btn-add-card-{{ list.color }}" onclick="showAddCardForm({{ list.id }})">
+                <span class="icon-plus">+</span>
+                <span class="btn-text">Añade una tarjeta</span>
+                <span class="icon-screen">🖥</span>
+            </button>
+            </div>
+        </div>
+        {% endfor %}
+        
+        <button class="btn-add-list" onclick="showAddListForm()">
+            <span class="icon-plus">+</span>
+            <span class="btn-text">Añade otra lista</span>
+        </button>
+    </div>
+
+    <div id="notifications-container" class="notifications-container"></div>
+</div>
+
+<!-- Formulario para añadir tarjeta -->
+<div id="addCardModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeAddCardForm()">&times;</span>
+        <h3>Añadir Nueva Tarjeta</h3>
+        <form id="addCardForm" method="post" action="{% url 'kanban:add_task' %}">
+            {% csrf_token %}
+            <input type="hidden" id="cardListId" name="list_id">
+            <div class="form-group">
+                <label for="cardTitle">Título de la tarjeta:</label>
+                <input type="text" id="cardTitle" name="title" required>
+            </div>
+            <button type="submit" class="btn-submit">Añadir</button>
+        </form>
+    </div>
+</div>
+
+<!-- Formulario para añadir lista -->
+<div id="addListModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeAddListForm()">&times;</span>
+        <h3>Añadir Nueva Lista</h3>
+        <form id="addListForm" method="post" action="{% url 'kanban:add_list' %}">
+            {% csrf_token %}
+            <div class="form-group">
+                <label for="listName">Nombre de la lista:</label>
+                <input type="text" id="listName" name="name" required>
+            </div>
+            <button type="submit" class="btn-submit">Añadir</button>
+        </form>
+    </div>
+</div>
+
+<!-- Formulario para editar tarjeta -->
+<div id="editTaskModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeEditTaskForm()">&times;</span>
+        <h3>Editar Tarea</h3>
+        <form id="editTaskForm" method="post">
+            {% csrf_token %}
+            <input type="hidden" id="editTaskId" name="task_id" value="">
+            <div class="form-group">
+                <label for="editTaskTitle">Título de la tarea:</label>
+                <input type="text" id="editTaskTitle" name="title" required>
+            </div>
+            <button type="submit" class="btn-submit">Guardar Cambios</button>
+        </form>
+    </div>
+</div>
+
+<!-- Formulario para añadir subtarea -->
+<div id="addSubtaskModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeAddSubtaskForm()">&times;</span>
+        <h3>Añadir Nueva Subtarea</h3>
+        <form id="addSubtaskForm" method="post">
+            {% csrf_token %}
+            <input type="hidden" id="addSubtaskTaskId" name="task_id">
+            <div class="form-group">
+                <label for="addSubtaskTitle">Título de la subtarea:</label>
+                <input type="text" id="addSubtaskTitle" name="title" required>
+            </div>
+            <button type="submit" class="btn-submit">Añadir</button>
+        </form>
+    </div>
+</div>
+
+<!-- Formulario para editar subtarea -->
+<div id="editSubtaskModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeEditSubtaskForm()">&times;</span>
+        <h3>Editar Subtarea</h3>
+        <form id="editSubtaskForm" method="post">
+            {% csrf_token %}
+            <input type="hidden" id="editSubtaskId" name="subtask_id" value="">
+            <div class="form-group">
+                <label for="editSubtaskTitle">Título de la subtarea:</label>
+                <input type="text" id="editSubtaskTitle" name="title" required>
+            </div>
+            <button type="submit" class="btn-submit">Guardar Cambios</button>
+        </form>
+    </div>
+</div>
+
+<!-- Modal para cambiar color de lista -->
+<div id="colorPickerModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeColorPickerModal()">&times;</span>
+        <h3>Seleccionar Color de Lista</h3>
+        <div class="color-picker-container" style="display: block !important; width: 100% !important; padding: 20px 0 !important;">
+            <div class="color-picker-grid" style="display: grid !important; grid-template-columns: repeat(2, 1fr) !important; gap: 12px !important; width: 100% !important; max-width: 250px !important; margin: 0 auto !important;">
+                <div class="color-option" data-color="green" onclick="event.preventDefault(); event.stopPropagation(); selectColor('green');" style="background: #14532d !important; width: 100% !important; height: 50px !important; min-height: 50px !important; display: block !important; visibility: visible !important; opacity: 1 !important; border-radius: 6px !important; cursor: pointer !important; border: 2px solid transparent !important;" title="Verde"></div>
+                <div class="color-option" data-color="yellow" onclick="event.preventDefault(); event.stopPropagation(); selectColor('yellow');" style="background: #854d0e !important; width: 100% !important; height: 50px !important; min-height: 50px !important; display: block !important; visibility: visible !important; opacity: 1 !important; border-radius: 6px !important; cursor: pointer !important; border: 2px solid transparent !important;" title="Amarillo"></div>
+                <div class="color-option" data-color="black" onclick="event.preventDefault(); event.stopPropagation(); selectColor('black');" style="background: #111827 !important; width: 100% !important; height: 50px !important; min-height: 50px !important; display: block !important; visibility: visible !important; opacity: 1 !important; border-radius: 6px !important; cursor: pointer !important; border: 2px solid transparent !important;" title="Negro"></div>
+                <div class="color-option" data-color="purple" onclick="event.preventDefault(); event.stopPropagation(); selectColor('purple');" style="background: #581c87 !important; width: 100% !important; height: 50px !important; min-height: 50px !important; display: block !important; visibility: visible !important; opacity: 1 !important; border-radius: 6px !important; cursor: pointer !important; border: 2px solid transparent !important;" title="Morado"></div>
+            </div>
+        </div>
+                 <input type="hidden" id="colorPickerListId" value="">
+     </div>
+ </div>
+ 
+ <!-- Modal para invitar estudiantes (solo administradores) -->
+ {% if can_delete %}
+ <div id="inviteModal" class="modal">
+     <div class="modal-content">
+         <span class="close" onclick="closeInviteModal()">&times;</span>
+         <h3>Invitar Estudiante</h3>
+         <div class="form-group">
+             <label for="studentSelect">Seleccionar Estudiante:</label>
+             <select id="studentSelect" class="form-control">
+                 <option value="">-- Seleccione un estudiante --</option>
+                 {% for student in students %}
+                 <option value="{{ student.id }}">{{ student.username }}</option>
+                 {% endfor %}
+             </select>
+         </div>
+         <button type="button" class="btn-submit" onclick="sendInvitation()">Enviar Invitación</button>
+     </div>
+ </div>
+
+ <div id="createUserModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeCreateUserModal()">&times;</span>
+        <h3>Crear Nuevo Usuario</h3>
+        <div class="form-group">
+            <label for="newUserUsername">Nombre de usuario</label>
+            <input type="text" id="newUserUsername" class="form-control" placeholder="usuario" />
+        </div>
+        <div class="form-group">
+            <label for="newUserEmail">Correo electrónico</label>
+            <input type="email" id="newUserEmail" class="form-control" placeholder="correo@ejemplo.com" />
+        </div>
+        <div class="form-group">
+            <label for="newUserPassword">Contraseña</label>
+            <input type="password" id="newUserPassword" class="form-control" placeholder="contraseña" />
+        </div>
+        <div class="form-group">
+            <label for="newUserRole">Rol</label>
+            <select id="newUserRole" class="form-control">
+                <option value="student">Estudiante (Invitado)</option>
+                <option value="admin">Administrador</option>
+            </select>
+        </div>
+        <button type="button" class="btn-submit" onclick="createNewUser()">Crear Usuario</button>
+    </div>
+</div>
+
+<div id="boardColorModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeBoardColorModal()">&times;</span>
+        <h3>Personalizar color del tablero</h3>
+        <div class="color-palette">
+            <button class="color-swatch no-color" onclick="setBoardColor('transparent')" title="Sin color">✕</button>
+            {% for color in board_colors %}
+            <button class="color-swatch" style="background: {{ color }};" onclick="setBoardColor('{{ color }}')" title="{{ color }}"></button>
+            {% endfor %}
+        </div>
+        <div class="background-upload">
+            <label for="boardBackgroundInput">Imagen personalizada</label>
+            <input type="file" id="boardBackgroundInput" accept="image/*">
+            <button type="button" class="btn-upload" onclick="uploadBoardBackground()">Subir imagen</button>
+            <p class="upload-hint">Formatos admitidos: JPG, PNG, WEBP. Máx. 4MB.</p>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Modal para ver invitaciones -->
+{% if pending_invitations %}
+<div id="invitationsModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeInvitationsModal()">&times;</span>
+        <h3>{% if can_delete %}Invitaciones Enviadas{% else %}Invitaciones Pendientes{% endif %}</h3>
+        <div class="invitations-list">
+            {% for invitation in pending_invitations %}
+            <div class="invitation-item">
+                <span>
+                    {% if can_delete %}
+                    Para: <strong>{{ invitation.student.username }}</strong>
+                    {% else %}
+                    De: <strong>{{ invitation.admin.username }}</strong>
+                    {% endif %}
+                </span>
+                {% if not can_delete %}
+                <div class="invitation-actions">
+                    <button class="btn-accept" onclick="acceptInvitation({{ invitation.id }})">Aceptar</button>
+                    <button class="btn-reject" onclick="rejectInvitation({{ invitation.id }})">Rechazar</button>
+                </div>
+                {% else %}
+                <button class="btn-reject" onclick="rejectInvitation({{ invitation.id }})">Cancelar</button>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Modal para ver actividades -->
+{% if can_view_activities %}
+<div id="activitiesModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeActivitiesModal()">&times;</span>
+        <h3>{{ activities_heading }}</h3>
+        <button class="btn-refresh" onclick="refreshActivities()" style="margin-bottom: 15px;">🔄 Actualizar</button>
+        <div class="activities-list" id="activitiesList">
+            {% for activity in activities %}
+            <div class="activity-item">
+                <div class="activity-header">
+                    <strong>{{ activity.user.username }}</strong>
+                    <span class="activity-type">{{ activity.get_activity_type_display }}</span>
+                </div>
+                <div class="activity-description">{{ activity.description }}</div>
+                {% if activity.related_creator %}
+                <div class="activity-meta">
+                    <span class="activity-creator">Creado por: {{ activity.related_creator.username }}</span>
+                </div>
+                {% endif %}
+                <div class="activity-time">{{ activity.created_at|date:"d/m/Y H:i:s" }}</div>
+                <div class="activity-comments">
+                    <h4>Comentarios ({{ activity.comments.all|length }})</h4>
+                    <div class="activity-comments-list">
+                        {% if activity.comments.all %}
+                            {% for comment in activity.comments.all %}
+                            <div class="activity-comment">
+                                <div class="activity-comment-header">
+                                    <strong class="activity-comment-author">{{ comment.author.username }}</strong>
+                                    <span class="activity-comment-time">{{ comment.created_at|date:"d/m/Y H:i:s" }}</span>
+                                </div>
+                                <div class="activity-comment-text">{{ comment.comment }}</div>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                        <div class="activity-comment-empty">Sin comentarios</div>
+                        {% endif %}
+                    </div>
+                    {% if can_delete %}
+                    <div class="activity-comment-form">
+                        <textarea id="comment-input-{{ activity.id }}" class="activity-comment-input" placeholder="Añade un comentario"></textarea>
+                        <button type="button" class="btn-submit" onclick="addActivityComment({{ activity.id }})">Comentar</button>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% empty %}
+            <div class="activity-empty">No hay actividades registradas</div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<script>
+const CAN_COMMENT = {{ can_delete|yesno:"true,false" }};
+const CAN_VIEW_ACTIVITIES = {{ can_view_activities|yesno:"true,false" }};
+let activitiesSocket = null;
+let activitiesReconnectTimeout = null;
+
+function escapeHtml(text) {
+    if (text === null || text === undefined) {
+        return '';
+    }
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function showAddCardForm(listId) {
+    document.getElementById('cardListId').value = listId;
+    document.getElementById('addCardModal').style.display = 'block';
+}
+
+function closeAddCardForm() {
+    document.getElementById('addCardModal').style.display = 'none';
+    document.getElementById('cardTitle').value = '';
+}
+
+function showAddListForm() {
+    document.getElementById('addListModal').style.display = 'block';
+}
+
+function closeAddListForm() {
+    document.getElementById('addListModal').style.display = 'none';
+    document.getElementById('listName').value = '';
+}
+
+// Manejar envío de formularios con AJAX
+document.getElementById('addCardForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    
+    fetch(this.action, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        }
+    });
+});
+
+document.getElementById('addListForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    
+    fetch(this.action, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        }
+    });
+});
+
+// Funciones para editar tarea
+function showEditTaskForm(taskId, taskTitle) {
+    document.getElementById('editTaskId').value = taskId;
+    document.getElementById('editTaskTitle').value = taskTitle;
+    document.getElementById('editTaskForm').action = `/update-task/${taskId}/`;
+    document.getElementById('editTaskModal').style.display = 'block';
+}
+
+function closeEditTaskForm() {
+    document.getElementById('editTaskModal').style.display = 'none';
+    document.getElementById('editTaskTitle').value = '';
+}
+
+// Manejar envío del formulario de edición
+document.getElementById('editTaskForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    const csrftoken = getCSRFToken();
+    formData.set('csrfmiddlewaretoken', csrftoken);
+    
+    fetch(this.action, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': csrftoken
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error al actualizar la tarea');
+    });
+});
+
+// Función para obtener token CSRF
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+// Función para obtener token CSRF
+function getCSRFToken() {
+    const token = document.getElementById('csrf-token')?.value || 
+                  getCookie('csrftoken') || 
+                  document.querySelector('[name=csrfmiddlewaretoken]')?.value;
+    return token;
+}
+
+// Función para eliminar tarea
+function deleteTask(taskId) {
+    if (confirm('¿Estás seguro de que deseas eliminar esta tarea?')) {
+        const formData = new FormData();
+        const csrftoken = getCSRFToken();
+        formData.append('csrfmiddlewaretoken', csrftoken);
+        
+        fetch(`/delete-task/${taskId}/`, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-CSRFToken': csrftoken
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error al eliminar la tarea');
+        });
+    }
+}
+
+// Funciones para el modal de selección de color de lista
+let currentColorPickerListId = null;
+
+function showColorPickerModal(listId) {
+    currentColorPickerListId = listId;
+    document.getElementById('colorPickerListId').value = listId;
+    
+    // Marcar el color actual como seleccionado
+    const listColumn = document.querySelector(`.list-column[data-list-id="${listId}"]`);
+    const currentColor = listColumn ? listColumn.classList.toString().match(/list-(green|yellow|purple|black)/)?.[1] : null;
+    
+    // Remover todas las clases selected
+    document.querySelectorAll('#colorPickerModal .color-option').forEach(option => {
+        option.classList.remove('selected');
+    });
+    
+    // Marcar el color actual como seleccionado
+    if (currentColor) {
+        const currentOption = document.querySelector(`#colorPickerModal .color-option[data-color="${currentColor}"]`);
+        if (currentOption) {
+            currentOption.classList.add('selected');
+        }
+    }
+    
+    document.getElementById('colorPickerModal').style.display = 'block';
+}
+
+function closeColorPickerModal() {
+    document.getElementById('colorPickerModal').style.display = 'none';
+    currentColorPickerListId = null;
+}
+
+function selectColor(color) {
+    if (!currentColorPickerListId) {
+        console.error('No hay lista seleccionada para cambiar el color');
+        alert('Error: No hay lista seleccionada');
+        return;
+    }
+    
+    const listId = currentColorPickerListId;
+    const csrftoken = getCSRFToken();
+    
+    console.log('Cambiando color de lista:', listId, 'a color:', color);
+    
+    fetch(`/change-list-color/${listId}/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrftoken
+        },
+        body: JSON.stringify({
+            color: color
+        })
+    })
+    .then(response => {
+        console.log('Response status:', response.status);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('Response data:', data);
+        if (data.success) {
+            console.log('Color cambiado exitosamente a:', data.color);
+            // Cerrar el modal
+            closeColorPickerModal();
+            // Esperar un momento antes de recargar para asegurar que se guardó
+            setTimeout(() => {
+                location.reload();
+            }, 100);
+        } else {
+            console.error('Error del servidor:', data.error);
+            if (data.traceback) {
+                console.error('Traceback:', data.traceback);
+            }
+            alert('Error al cambiar el color: ' + (data.error || 'Error desconocido'));
+        }
+    })
+    .catch(error => {
+        console.error('Error en fetch:', error);
+        alert('Error al cambiar el color: ' + error.message);
+    });
+}
+
+// Función para eliminar lista
+function deleteList(listId) {
+    // Obtener información de la lista antes de eliminar
+    const listElement = document.querySelector(`.list-column[data-list-id="${listId}"]`);
+    const listName = listElement ? listElement.querySelector('.list-title').textContent.trim() : 'esta lista';
+    const taskCount = listElement ? listElement.querySelectorAll('.draggable-task').length : 0;
+    
+    const message = `¿Estás seguro de que deseas eliminar la lista "${listName}"?\n\n` +
+                   `Se eliminarán todas las ${taskCount} tarea${taskCount !== 1 ? 's' : ''} y sus subtareas asociadas.\n\n` +
+                   `Esta acción no se puede deshacer.`;
+    
+    if (confirm(message)) {
+        const formData = new FormData();
+        const csrftoken = getCSRFToken();
+        formData.append('csrfmiddlewaretoken', csrftoken);
+        
+        fetch(`/delete-list/${listId}/`, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-CSRFToken': csrftoken
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Mostrar mensaje de éxito
+                alert(data.message || 'Lista eliminada exitosamente');
+                location.reload();
+            } else {
+                alert('Error al eliminar la lista');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error al eliminar la lista. Por favor, intenta nuevamente.');
+        });
+    }
+}
+
+// Función para mover tarea entre listas
+function moveTask(taskId, newListId, currentListId) {
+    if (!newListId || newListId == currentListId) {
+        return;
+    }
+    
+    const formData = new FormData();
+    const csrftoken = getCSRFToken();
+    formData.append('csrfmiddlewaretoken', csrftoken);
+    formData.append('list_id', newListId);
+    
+    fetch(`/move-task/${taskId}/`, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': csrftoken
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error al mover la tarea');
+    });
+}
+
+
+// ========== DRAG AND DROP PARA LISTAS ==========
+
+let draggedList = null;
+let draggedFromIndex = null;
+
+function handleListDragStart(e, listId) {
+    // Solo permitir arrastrar si no hay una tarea o subtarea siendo arrastrada
+    // Pero verificar desde el elemento que inició el drag (puede ser el header o cualquier parte de la lista)
+    const taskElement = e.target.closest('.draggable-task');
+    const subtaskElement = e.target.closest('.draggable-subtask');
+    
+    if (taskElement || subtaskElement || draggedTask || draggedSubtask) {
+        e.preventDefault();
+        return false;
+    }
+    
+    // Solo permitir arrastrar desde el header de la lista, no desde las tareas
+    const listHeader = e.target.closest('.list-header');
+    if (!listHeader && !e.target.classList.contains('list-column')) {
+        e.preventDefault();
+        return false;
+    }
+    
+    draggedList = { id: listId };
+    draggedFromIndex = Array.from(e.target.closest('.board-lists').children).indexOf(e.target.closest('.list-column'));
+    
+    const listColumn = e.target.closest('.list-column');
+    if (listColumn) {
+        listColumn.classList.add('dragging-list');
+    }
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/html', listColumn ? listColumn.outerHTML : '');
+    e.dataTransfer.setData('list-id', listId);
+}
+
+function handleListDragEnd(e) {
+    const listColumn = e.target.closest('.list-column');
+    if (listColumn) {
+        listColumn.classList.remove('dragging-list');
+    }
+    
+    // Remover todas las clases de drag-over
+    document.querySelectorAll('.list-column').forEach(col => {
+        col.classList.remove('drag-over-list');
+    });
+    
+    draggedList = null;
+    draggedFromIndex = null;
+}
+
+// Manejar dragover para listas
+document.addEventListener('dragover', function(e) {
+    // Si hay una tarea o subtarea siendo arrastrada, NO procesar listas
+    if (draggedTask || draggedSubtask) {
+        return;
+    }
+    
+    // Solo procesar si hay una lista siendo arrastrada
+    if (!draggedList) {
+        return;
+    }
+    
+    const boardLists = document.getElementById('board-lists');
+    if (!boardLists) {
+        return;
+    }
+    
+    // Buscar la lista objetivo (puede ser desde cualquier parte de la columna)
+    let targetList = e.target.closest('.draggable-list');
+    
+    // Si no encontramos la lista, puede ser que estemos sobre el header
+    if (!targetList) {
+        const listHeader = e.target.closest('.draggable-list-header');
+        if (listHeader) {
+            targetList = listHeader.closest('.draggable-list');
+        }
+    }
+    
+    // Si aún no la encontramos, puede ser que estemos sobre el list-column directamente
+    if (!targetList) {
+        const listColumn = e.target.closest('.list-column');
+        if (listColumn) {
+            targetList = listColumn;
+        }
+    }
+    
+    // No procesar si es dentro de una tarea o subtarea o contenedores de tareas
+    const isInsideTask = e.target.closest('.draggable-task');
+    const isInsideSubtask = e.target.closest('.draggable-subtask');
+    const isInsideTasksContainer = e.target.closest('.tasks-container');
+    const isInsideListCards = e.target.closest('.list-cards');
+    
+    // Procesar solo si encontramos una lista objetivo y no estamos dentro de tareas/subtareas
+    if (targetList && !isInsideTask && !isInsideSubtask && !isInsideTasksContainer && !isInsideListCards) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+        
+        // Remover indicadores previos de todas las listas
+        document.querySelectorAll('.list-column').forEach(col => {
+            col.classList.remove('drag-over-list', 'drag-over-list-before', 'drag-over-list-after');
+        });
+        
+        // Obtener todas las listas para determinar la posición
+        const allLists = Array.from(boardLists.querySelectorAll('.draggable-list'));
+        const targetIndex = allLists.indexOf(targetList);
+        const draggedElement = document.querySelector(`.draggable-list[data-list-id="${draggedList.id}"]`);
+        const draggedIndex = draggedElement ? allLists.indexOf(draggedElement) : -1;
+        
+        // Solo agregar indicador si no es la lista que estamos arrastrando
+        if (targetIndex !== draggedIndex && targetIndex !== -1) {
+            const mouseX = e.clientX;
+            const rect = targetList.getBoundingClientRect();
+            const listMiddle = rect.left + rect.width / 2;
+            
+            // Determinar si debe ir antes o después
+            if (mouseX < listMiddle) {
+                targetList.classList.add('drag-over-list-before');
+            } else {
+                targetList.classList.add('drag-over-list-after');
+            }
+        }
+    }
+}, false);
+
+// Manejar drop para listas
+document.addEventListener('drop', function(e) {
+    // Si hay una tarea o subtarea siendo arrastrada, NO procesar listas
+    if (draggedTask || draggedSubtask) {
+        return;
+    }
+    
+    // Solo procesar si hay una lista siendo arrastrada
+    if (!draggedList) {
+        return;
+    }
+    
+    const boardLists = document.getElementById('board-lists');
+    if (!boardLists) {
+        return;
+    }
+    
+    // Buscar la lista objetivo (puede ser desde cualquier parte de la columna)
+    let targetList = e.target.closest('.draggable-list');
+    
+    // Si no encontramos la lista, puede ser que estemos sobre el header
+    if (!targetList) {
+        const listHeader = e.target.closest('.draggable-list-header');
+        if (listHeader) {
+            targetList = listHeader.closest('.draggable-list');
+        }
+    }
+    
+    // Si aún no la encontramos, puede ser que estemos sobre el list-column directamente
+    if (!targetList) {
+        const listColumn = e.target.closest('.list-column');
+        if (listColumn) {
+            targetList = listColumn;
+        }
+    }
+    
+    // No procesar si es dentro de una tarea o subtarea o contenedores de tareas
+    const isInsideTask = e.target.closest('.draggable-task');
+    const isInsideSubtask = e.target.closest('.draggable-subtask');
+    const isInsideTasksContainer = e.target.closest('.tasks-container');
+    const isInsideListCards = e.target.closest('.list-cards');
+    
+    // Solo procesar si encontramos una lista objetivo y no estamos dentro de tareas/subtareas
+    if (!targetList || isInsideTask || isInsideSubtask || isInsideTasksContainer || isInsideListCards) {
+        return;
+    }
+    
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const draggedElement = document.querySelector(`.draggable-list[data-list-id="${draggedList.id}"]`);
+    if (!draggedElement) {
+        return;
+    }
+    
+    // Remover indicadores
+    document.querySelectorAll('.list-column').forEach(col => {
+        col.classList.remove('drag-over-list', 'drag-over-list-before', 'drag-over-list-after');
+    });
+    
+    // Obtener todas las listas
+    const allLists = Array.from(boardLists.querySelectorAll('.draggable-list'));
+    const targetIndex = allLists.indexOf(targetList);
+    const draggedIndex = allLists.indexOf(draggedElement);
+    
+    if (targetIndex !== draggedIndex && targetIndex !== -1 && draggedIndex !== -1) {
+        // Determinar si debe ir antes o después basándose en la posición del mouse
+        const mouseX = e.clientX;
+        const rect = targetList.getBoundingClientRect();
+        const listMiddle = rect.left + rect.width / 2;
+        
+        // Insertar la lista arrastrada en la nueva posición
+        if (mouseX < listMiddle) {
+            // Insertar antes
+            boardLists.insertBefore(draggedElement, targetList);
+        } else {
+            // Insertar después
+            if (targetList.nextSibling) {
+                boardLists.insertBefore(draggedElement, targetList.nextSibling);
+            } else {
+                boardLists.appendChild(draggedElement);
+            }
+        }
+        
+        // Actualizar el orden en el servidor
+        updateListOrder();
+    }
+}, false);
+
+function updateListOrder() {
+    const boardLists = document.getElementById('board-lists');
+    if (!boardLists) {
+        return;
+    }
+    
+    const listElements = boardLists.querySelectorAll('.draggable-list');
+    const listIds = Array.from(listElements).map(el => parseInt(el.dataset.listId));
+    
+    if (listIds.length === 0) {
+        return;
+    }
+    
+    const csrftoken = getCSRFToken();
+    
+    fetch('/reorder-lists/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrftoken
+        },
+        body: JSON.stringify({
+            list_ids: listIds
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log('Listas reordenadas exitosamente');
+        } else {
+            console.error('Error al reordenar:', data.error);
+            location.reload();
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        location.reload();
+    });
+}
+
+// Funciones para gestionar subtareas
+function toggleSubtasks(taskId) {
+    const subtasksList = document.getElementById(`subtasks-${taskId}`);
+    const toggleIcon = document.getElementById(`toggle-${taskId}`);
+    
+    if (subtasksList.style.display === 'none') {
+        subtasksList.style.display = 'block';
+        toggleIcon.textContent = '▲';
+    } else {
+        subtasksList.style.display = 'none';
+        toggleIcon.textContent = '▼';
+    }
+}
+
+function showAddSubtaskForm(taskId) {
+    document.getElementById('addSubtaskTaskId').value = taskId;
+    document.getElementById('addSubtaskForm').action = `/add-subtask/${taskId}/`;
+    document.getElementById('addSubtaskModal').style.display = 'block';
+}
+
+function closeAddSubtaskForm() {
+    document.getElementById('addSubtaskModal').style.display = 'none';
+    document.getElementById('addSubtaskTitle').value = '';
+}
+
+function showEditSubtaskForm(subtaskId, subtaskTitle) {
+    document.getElementById('editSubtaskId').value = subtaskId;
+    document.getElementById('editSubtaskTitle').value = subtaskTitle;
+    document.getElementById('editSubtaskForm').action = `/update-subtask/${subtaskId}/`;
+    document.getElementById('editSubtaskModal').style.display = 'block';
+}
+
+function closeEditSubtaskForm() {
+    document.getElementById('editSubtaskModal').style.display = 'none';
+    document.getElementById('editSubtaskTitle').value = '';
+}
+
+function deleteSubtask(subtaskId) {
+    if (confirm('¿Estás seguro de que deseas eliminar esta subtarea?')) {
+        const formData = new FormData();
+        const csrftoken = getCSRFToken();
+        formData.append('csrfmiddlewaretoken', csrftoken);
+        
+        fetch(`/delete-subtask/${subtaskId}/`, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-CSRFToken': csrftoken
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error al eliminar la subtarea');
+        });
+    }
+}
+
+function toggleSubtask(subtaskId, checked) {
+    const formData = new FormData();
+    const csrftoken = getCSRFToken();
+    formData.append('csrfmiddlewaretoken', csrftoken);
+    
+    fetch(`/toggle-subtask/${subtaskId}/`, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': csrftoken
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const subtaskItem = document.querySelector(`[data-subtask-id="${subtaskId}"]`);
+            const subtaskTitle = subtaskItem.querySelector('.subtask-title');
+            if (data.completed) {
+                subtaskTitle.classList.add('completed');
+            } else {
+                subtaskTitle.classList.remove('completed');
+            }
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        location.reload();
+    });
+}
+
+// Manejar envío del formulario de añadir subtarea
+document.getElementById('addSubtaskForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    const csrftoken = getCSRFToken();
+    formData.set('csrfmiddlewaretoken', csrftoken);
+    
+    fetch(this.action, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': csrftoken
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error al agregar la subtarea');
+    });
+});
+
+// Manejar envío del formulario de editar subtarea
+document.getElementById('editSubtaskForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    const csrftoken = getCSRFToken();
+    formData.set('csrfmiddlewaretoken', csrftoken);
+    
+    fetch(this.action, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': csrftoken
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error al actualizar la subtarea');
+    });
+});
+
+function triggerTaskAttachmentUpload(taskId) {
+    const input = document.getElementById(`task-attachment-input-${taskId}`);
+    if (input) {
+        input.click();
+    }
+}
+
+async function handleTaskAttachmentUpload(event, taskId) {
+    const input = event.target;
+    const files = input.files;
+
+    if (!files || files.length === 0) {
+        return;
+    }
+
+    const csrftoken = getCSRFToken();
+
+    try {
+        for (const file of files) {
+            const formData = new FormData();
+            formData.append('csrfmiddlewaretoken', csrftoken);
+            formData.append('file', file);
+
+            const response = await fetch(`/tasks/${taskId}/attachments/`, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-CSRFToken': csrftoken
+                }
+            });
+
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || 'No se pudo subir el archivo');
+            }
+        }
+        location.reload();
+    } catch (error) {
+        console.error('Error al subir adjunto:', error);
+        alert(error.message || 'Error al subir el archivo');
+    } finally {
+        input.value = '';
+    }
+}
+
+function deleteTaskAttachment(attachmentId) {
+    if (!confirm('¿Eliminar este adjunto?')) {
+        return;
+    }
+
+    const csrftoken = getCSRFToken();
+    const formData = new FormData();
+    formData.append('csrfmiddlewaretoken', csrftoken);
+
+    fetch(`/attachments/task/${attachmentId}/delete/`, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': csrftoken
+        }
+    })
+    .then(response => {
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+            throw new Error('El servidor devolvió una respuesta inesperada');
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data.success) {
+            throw new Error(data.error || 'No se pudo eliminar el adjunto');
+        }
+        location.reload();
+    })
+    .catch(error => {
+        console.error('Error al eliminar adjunto:', error);
+        alert(error.message || 'Error inesperado al eliminar el adjunto');
+    });
+}
+
+function triggerSubtaskAttachmentUpload(subtaskId) {
+    const input = document.getElementById(`subtask-attachment-input-${subtaskId}`);
+    if (input) {
+        input.click();
+    }
+}
+
+async function handleSubtaskAttachmentUpload(event, subtaskId) {
+    const input = event.target;
+    const files = input.files;
+
+    if (!files || files.length === 0) {
+        return;
+    }
+
+    const csrftoken = getCSRFToken();
+
+    try {
+        for (const file of files) {
+            const formData = new FormData();
+            formData.append('csrfmiddlewaretoken', csrftoken);
+            formData.append('file', file);
+
+            const response = await fetch(`/subtasks/${subtaskId}/attachments/`, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-CSRFToken': csrftoken
+                }
+            });
+
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || 'No se pudo subir el archivo');
+            }
+        }
+        location.reload();
+    } catch (error) {
+        console.error('Error al subir adjunto de subtarea:', error);
+        alert(error.message || 'Error al subir el archivo');
+    } finally {
+        input.value = '';
+    }
+}
+
+function deleteSubtaskAttachment(attachmentId) {
+    if (!confirm('¿Eliminar este adjunto?')) {
+        return;
+    }
+
+    const csrftoken = getCSRFToken();
+    const formData = new FormData();
+    formData.append('csrfmiddlewaretoken', csrftoken);
+
+    fetch(`/attachments/subtask/${attachmentId}/delete/`, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': csrftoken
+        }
+    })
+    .then(response => {
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+            throw new Error('El servidor devolvió una respuesta inesperada');
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data.success) {
+            throw new Error(data.error || 'No se pudo eliminar el adjunto');
+        }
+        location.reload();
+    })
+    .catch(error => {
+        console.error('Error al eliminar adjunto de subtarea:', error);
+        alert(error.message || 'Error inesperado al eliminar el adjunto');
+    });
+}
+
+// Variables globales para drag and drop
+let draggedTask = null;
+let draggedSubtask = null;
+let draggedFromList = null;
+let draggedFromTask = null;
+
+// ========== DRAG AND DROP PARA TAREAS ==========
+
+function handleTaskDragStart(e, taskId, listId) {
+    draggedTask = { id: taskId, listId: listId };
+    draggedFromList = listId;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', taskId);
+    e.currentTarget.classList.add('dragging');
+    
+    // Ocultar botones de acción durante el drag
+    const cardActions = e.currentTarget.querySelector('.card-actions');
+    if (cardActions) cardActions.style.display = 'none';
+}
+
+function handleTaskDragEnd(e) {
+    e.currentTarget.classList.remove('dragging');
+    const cardActions = e.currentTarget.querySelector('.card-actions');
+    if (cardActions) cardActions.style.display = 'flex';
+    
+    // Remover clases de hover de todos los contenedores
+    document.querySelectorAll('.tasks-container').forEach(container => {
+        container.classList.remove('drag-over');
+    });
+    
+    // Remover indicadores de inserción
+    document.querySelectorAll('.draggable-task').forEach(task => {
+        task.classList.remove('drag-insert-before');
+    });
+    
+    draggedTask = null;
+    draggedFromList = null;
+}
+
+function handleListDragOver(e, listId) {
+    // Solo permitir drag over para tareas, no subtareas
+    if (draggedSubtask) {
+        return false;
+    }
+    
+    if (draggedTask) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+        
+        // Buscar el listCards usando el listId pasado como parámetro
+        // Primero intentar desde currentTarget, luego buscar por ID
+        let listCards = e.currentTarget;
+        
+        // Verificar que sea list-cards y que el ID coincida
+        if (!listCards || !listCards.classList.contains('list-cards') || parseInt(listCards.dataset.listId) !== listId) {
+            listCards = document.querySelector(`.list-cards[data-list-id="${listId}"]`);
+        }
+        
+        // Si aún no lo encontramos, intentar desde el target
+        if (!listCards) {
+            listCards = e.target.closest('.list-cards');
+            if (listCards && parseInt(listCards.dataset.listId) !== listId) {
+                listCards = document.querySelector(`.list-cards[data-list-id="${listId}"]`);
+            }
+        }
+        
+        if (listCards) {
+            const tasksContainer = listCards.querySelector('.tasks-container');
+            
+            if (tasksContainer) {
+                tasksContainer.classList.add('drag-over');
+                
+                // Mostrar indicador visual de dónde se insertará
+                const existingTasks = Array.from(tasksContainer.querySelectorAll('.draggable-task'))
+                    .filter(el => parseInt(el.dataset.taskId) !== draggedTask.id);
+                
+                // Remover indicadores previos de este contenedor
+                existingTasks.forEach(task => task.classList.remove('drag-insert-before'));
+                
+                if (existingTasks.length > 0) {
+                    const mouseY = e.clientY;
+                    for (let taskEl of existingTasks) {
+                        const rect = taskEl.getBoundingClientRect();
+                        const taskMiddle = rect.top + rect.height / 2;
+                        
+                        if (mouseY < taskMiddle) {
+                            taskEl.classList.add('drag-insert-before');
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    return false;
+}
+
+function handleDrop(e, targetListId) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Solo procesar si es una tarea, no subtarea
+    if (!draggedTask || draggedSubtask) {
+        return false;
+    }
+    
+    // Buscar el contenedor de tareas por listId directamente
+    const listCardsElement = document.querySelector(`.list-cards[data-list-id="${targetListId}"]`);
+    if (!listCardsElement) {
+        console.error('No se encontró la lista con ID:', targetListId);
+        return false;
+    }
+    
+    const tasksContainer = listCardsElement.querySelector('.tasks-container');
+    if (!tasksContainer) {
+        console.error('No se encontró el contenedor de tareas para la lista:', targetListId);
+        return false;
+    }
+    
+    tasksContainer.classList.remove('drag-over');
+    
+    if (draggedTask && draggedTask.id) {
+        const taskElement = document.querySelector(`[data-task-id="${draggedTask.id}"]`);
+        
+        if (taskElement && tasksContainer) {
+            // Remover la tarea de su posición actual si está en otro contenedor
+            const currentParent = taskElement.parentNode;
+            if (currentParent && currentParent !== tasksContainer) {
+                taskElement.remove();
+            }
+            
+            // Obtener todas las tareas del contenedor objetivo (excluyendo la que estamos moviendo)
+            const existingTasks = Array.from(tasksContainer.querySelectorAll('.draggable-task'))
+                .filter(el => parseInt(el.dataset.taskId) !== draggedTask.id);
+            
+            // Si el contenedor está vacío o solo tiene la tarea que estamos moviendo
+            if (existingTasks.length === 0) {
+                // Si el contenedor estaba vacío, simplemente agregar la tarea
+                taskElement.dataset.listId = targetListId;
+                tasksContainer.appendChild(taskElement);
+            } else {
+                // Si hay tareas existentes, encontrar la posición de inserción basada en la posición del mouse
+                let insertBefore = null;
+                const mouseY = e.clientY;
+                
+                for (let taskEl of existingTasks) {
+                    const rect = taskEl.getBoundingClientRect();
+                    const taskMiddle = rect.top + rect.height / 2;
+                    
+                    if (mouseY < taskMiddle) {
+                        insertBefore = taskEl;
+                        break;
+                    }
+                }
+                
+                // Actualizar data-list-id del elemento
+                taskElement.dataset.listId = targetListId;
+                
+                // Insertar la tarea en la posición correcta
+                if (insertBefore) {
+                    tasksContainer.insertBefore(taskElement, insertBefore);
+                } else {
+                    // Si no hay insertBefore, agregar al final del contenedor
+                    tasksContainer.appendChild(taskElement);
+                }
+            }
+            
+            // Actualizar el orden en el servidor
+            updateTaskOrder(targetListId);
+        } else {
+            console.error('No se pudo encontrar la tarea o el contenedor');
+        }
+    }
+    
+    // Limpiar variables globales
+    draggedTask = null;
+    draggedFromList = null;
+    
+    return true;
+}
+
+function updateTaskOrder(listId) {
+    // Buscar desde list-cards primero para asegurar que encontramos el contenedor correcto
+    const listCards = document.querySelector(`.list-cards[data-list-id="${listId}"]`);
+    if (!listCards) {
+        console.error('No se encontró la lista con ID:', listId);
+        return;
+    }
+    
+    const tasksContainer = listCards.querySelector('.tasks-container');
+    if (!tasksContainer) {
+        console.error('No se encontró el contenedor de tareas para la lista:', listId);
+        return;
+    }
+    
+    const taskElements = tasksContainer.querySelectorAll('.draggable-task');
+    const taskIds = Array.from(taskElements).map(el => parseInt(el.dataset.taskId));
+    
+    if (taskIds.length === 0) {
+        console.log('No hay tareas para reordenar en la lista:', listId);
+        return;
+    }
+    
+    const csrftoken = getCSRFToken();
+    
+    fetch('/reorder-tasks/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrftoken
+        },
+        body: JSON.stringify({
+            task_ids: taskIds,
+            list_id: listId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log('Tareas reordenadas exitosamente en la lista:', listId);
+        } else {
+            console.error('Error al reordenar:', data.error);
+            location.reload();
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        location.reload();
+    });
+}
+
+// ========== DRAG AND DROP PARA SUBTAREAS ==========
+
+function handleSubtaskDragStart(e, subtaskId, taskId) {
+    e.stopPropagation(); // Evitar que arrastre la tarea padre
+    draggedSubtask = { id: subtaskId, taskId: taskId };
+    draggedFromTask = taskId;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', subtaskId);
+    e.currentTarget.classList.add('dragging');
+}
+
+function handleSubtaskDragEnd(e) {
+    e.currentTarget.classList.remove('dragging');
+    
+    // Remover clases de hover de todas las listas de subtareas
+    document.querySelectorAll('.subtasks-list').forEach(list => {
+        list.classList.remove('drag-over');
+    });
+    
+    draggedSubtask = null;
+    draggedFromTask = null;
+}
+
+function handleSubtaskDrop(e, targetTaskId) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const subtasksContainer = e.currentTarget;
+    subtasksContainer.classList.remove('drag-over');
+    
+    if (draggedSubtask && draggedSubtask.id) {
+        const subtaskElement = document.querySelector(`[data-subtask-id="${draggedSubtask.id}"]`);
+        
+        if (subtaskElement) {
+            const subtaskElements = Array.from(subtasksContainer.querySelectorAll('.draggable-subtask'));
+            
+            // Encontrar la posición de inserción
+            let insertBefore = null;
+            const mouseY = e.clientY;
+            
+            for (let subtaskEl of subtaskElements) {
+                const rect = subtaskEl.getBoundingClientRect();
+                const subtaskMiddle = rect.top + rect.height / 2;
+                
+                if (mouseY < subtaskMiddle && subtaskEl !== subtaskElement) {
+                    insertBefore = subtaskEl;
+                    break;
+                }
+            }
+            
+            // Actualizar el data-task-id del elemento
+            subtaskElement.dataset.taskId = targetTaskId;
+            
+            // Mover el elemento en el DOM
+            if (insertBefore) {
+                subtasksContainer.insertBefore(subtaskElement, insertBefore);
+            } else {
+                // Si no hay insertBefore, mover antes del botón "Añadir subtarea"
+                const addButton = subtasksContainer.querySelector('.btn-add-subtask');
+                if (addButton) {
+                    addButton.before(subtaskElement);
+                } else {
+                    subtasksContainer.appendChild(subtaskElement);
+                }
+            }
+            
+            // Actualizar el orden en el servidor
+            updateSubtaskOrder(targetTaskId);
+            
+            // Actualizar el contador de subtareas en ambas tareas si fue una tarea diferente
+            if (draggedFromTask && draggedFromTask !== targetTaskId) {
+                updateSubtaskCount(draggedFromTask);
+                updateSubtaskCount(targetTaskId);
+            }
+        }
+    }
+    
+    draggedSubtask = null;
+    draggedFromTask = null;
+}
+
+function updateSubtaskOrder(taskId) {
+    const subtasksContainer = document.querySelector(`[data-task-id="${taskId}"].subtasks-list`);
+    if (!subtasksContainer) return;
+    
+    const subtaskElements = subtasksContainer.querySelectorAll('.draggable-subtask');
+    const subtaskIds = Array.from(subtaskElements).map(el => parseInt(el.dataset.subtaskId));
+    
+    const csrftoken = getCSRFToken();
+    
+    fetch('/reorder-subtasks/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrftoken
+        },
+        body: JSON.stringify({
+            subtask_ids: subtaskIds,
+            task_id: taskId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            updateSubtaskCount(taskId);
+        } else {
+            console.error('Error al reordenar:', data.error);
+            location.reload();
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        location.reload();
+    });
+}
+
+function updateSubtaskCount(taskId) {
+    const subtasksContainer = document.querySelector(`[data-task-id="${taskId}"].subtasks-list`);
+    if (!subtasksContainer) return;
+    
+    const subtaskCount = subtasksContainer.querySelectorAll('.draggable-subtask').length;
+    const header = subtasksContainer.previousElementSibling;
+    if (header) {
+        const countElement = header.querySelector('.subtasks-count');
+        if (countElement) {
+            countElement.textContent = subtaskCount;
+        }
+    }
+}
+
+// Manejar drop global para permitir drop en cualquier lista (incluso vacías)
+// Usar captura para asegurar que capture el evento antes que los handlers inline
+// PERO solo si no hay una lista siendo arrastrada
+document.addEventListener('drop', function(e) {
+    // No procesar si hay una lista siendo arrastrada
+    if (draggedList) {
+        return;
+    }
+    
+    // Solo procesar si hay una tarea siendo arrastrada
+    if (!draggedTask || draggedSubtask) {
+        return;
+    }
+    
+    // Buscar el área de la lista (list-cards) de múltiples formas
+    let listCards = e.target.closest('.list-cards');
+    
+    // Si no encontramos list-cards directamente, buscar desde tasks-container
+    if (!listCards) {
+        const tasksContainer = e.target.closest('.tasks-container');
+        if (tasksContainer) {
+            listCards = tasksContainer.closest('.list-cards');
+        }
+    }
+    
+    // Si aún no lo encontramos, buscar desde el botón o list-column
+    if (!listCards) {
+        const btnAddCard = e.target.closest('.btn-add-card');
+        if (btnAddCard) {
+            listCards = btnAddCard.closest('.list-column')?.querySelector('.list-cards');
+        }
+    }
+    
+    // Si aún no lo encontramos, buscar desde list-column directamente
+    if (!listCards) {
+        const listColumn = e.target.closest('.list-column');
+        if (listColumn) {
+            listCards = listColumn.querySelector('.list-cards');
+        }
+    }
+    
+    // Verificar que no sea dentro de subtareas o contenido de tarjeta
+    const subtasksSection = e.target.closest('.subtasks-section');
+    const subtasksList = e.target.closest('.subtasks-list');
+    const cardContent = e.target.closest('.card-content');
+    const cardActions = e.target.closest('.card-actions');
+    const draggableTaskEl = e.target.closest('.draggable-task');
+    
+    // Solo procesar si es sobre list-cards y no dentro de una tarjeta o sus elementos internos
+    if (listCards && !subtasksSection && !subtasksList && !cardContent && !cardActions && !draggableTaskEl) {
+        const listId = parseInt(listCards.dataset.listId);
+        if (listId && !isNaN(listId)) {
+            console.log('Drop detectado en lista:', listId);
+            // Prevenir el manejo doble del evento
+            e.preventDefault();
+            e.stopPropagation();
+            handleDrop(e, listId);
+        }
+    }
+}, true);
+
+// Asegurar que los eventos de drag no interfieran entre tareas y subtareas
+// Usar captura para asegurar que capture el evento antes que los handlers inline
+document.addEventListener('dragover', function(e) {
+    // Si hay una lista siendo arrastrada, NO procesar tareas
+    if (draggedList) {
+        return;
+    }
+    
+    // Si hay una subtarea siendo arrastrada, solo permitir drop en listas de subtareas
+    if (draggedSubtask) {
+        const subtasksList = e.target.closest('.subtasks-list');
+        if (subtasksList) {
+            e.preventDefault();
+            e.stopPropagation();
+            subtasksList.classList.add('drag-over');
+        }
+    } else if (draggedTask) {
+        // Si hay una tarea siendo arrastrada, permitir drop en cualquier lista
+        let listCards = e.target.closest('.list-cards');
+        const tasksContainer = e.target.closest('.tasks-container');
+        const subtasksSection = e.target.closest('.subtasks-section');
+        const subtasksList = e.target.closest('.subtasks-list');
+        const cardContent = e.target.closest('.card-content');
+        const cardActions = e.target.closest('.card-actions');
+        const draggableTaskEl = e.target.closest('.draggable-task');
+        
+        // Si no encontramos listCards directamente, buscarlo desde tasks-container o list-column
+        if (!listCards && tasksContainer) {
+            listCards = tasksContainer.closest('.list-cards');
+        }
+        if (!listCards) {
+            const listColumn = e.target.closest('.list-column');
+            if (listColumn) {
+                listCards = listColumn.querySelector('.list-cards');
+            }
+        }
+        
+        // Permitir drop si es el área de la lista o el contenedor de tareas
+        // Pero NO dentro de una tarjeta o sus elementos internos
+        if ((listCards || tasksContainer) && !subtasksSection && !subtasksList && !cardContent && !cardActions && !draggableTaskEl) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = 'move';
+            
+            // Obtener el contenedor de tareas
+            let container = null;
+            if (tasksContainer) {
+                container = tasksContainer;
+            } else if (listCards) {
+                container = listCards.querySelector('.tasks-container');
+            }
+            
+            if (container) {
+                // Agregar clase drag-over al contenedor
+                container.classList.add('drag-over');
+                
+                // Mostrar indicador visual de inserción solo si hay tareas existentes
+                const existingTasks = Array.from(container.querySelectorAll('.draggable-task'))
+                    .filter(el => parseInt(el.dataset.taskId) !== draggedTask.id);
+                
+                if (existingTasks.length > 0) {
+                    existingTasks.forEach(task => task.classList.remove('drag-insert-before'));
+                    
+                    const mouseY = e.clientY;
+                    for (let taskEl of existingTasks) {
+                        const rect = taskEl.getBoundingClientRect();
+                        const taskMiddle = rect.top + rect.height / 2;
+                        
+                        if (mouseY < taskMiddle) {
+                            taskEl.classList.add('drag-insert-before');
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}, true);
+
+document.addEventListener('dragleave', function(e) {
+    const tasksContainer = e.target.closest('.tasks-container');
+    const subtasksList = e.target.closest('.subtasks-list');
+    
+    if (tasksContainer && !tasksContainer.contains(e.relatedTarget)) {
+        tasksContainer.classList.remove('drag-over');
+        // Remover indicadores de inserción
+        tasksContainer.querySelectorAll('.draggable-task').forEach(task => {
+            task.classList.remove('drag-insert-before');
+        });
+    }
+    
+        if (subtasksList && !subtasksList.contains(e.relatedTarget)) {
+        subtasksList.classList.remove('drag-over');
+    }
+});
+
+// Funciones para invitaciones
+function showInviteModal() {
+    document.getElementById('inviteModal').style.display = 'block';
+}
+
+function closeInviteModal() {
+    document.getElementById('inviteModal').style.display = 'none';
+    document.getElementById('studentSelect').value = '';
+}
+
+function showCreateUserModal() {
+    document.getElementById('createUserModal').style.display = 'block';
+}
+
+function closeCreateUserModal() {
+    document.getElementById('createUserModal').style.display = 'none';
+    document.getElementById('newUserUsername').value = '';
+    document.getElementById('newUserEmail').value = '';
+    document.getElementById('newUserPassword').value = '';
+    document.getElementById('newUserRole').value = 'student';
+}
+
+function createNewUser() {
+    const username = document.getElementById('newUserUsername').value.trim();
+    const email = document.getElementById('newUserEmail').value.trim();
+    const password = document.getElementById('newUserPassword').value.trim();
+    const role = document.getElementById('newUserRole').value;
+
+    if (!username || !email || !password) {
+        alert('Todos los campos son obligatorios');
+        return;
+    }
+
+    const csrftoken = getCSRFToken();
+    const formData = new FormData();
+    formData.append('csrfmiddlewaretoken', csrftoken);
+    formData.append('username', username);
+    formData.append('email', email);
+    formData.append('password', password);
+    formData.append('role', role);
+
+    fetch('{% url "kanban:create_user" %}', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': csrftoken
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            closeCreateUserModal();
+            window.location.reload();
+        } else {
+            alert(data.error || 'No se pudo crear el usuario');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error inesperado al crear el usuario');
+    });
+}
+
+// Funciones para color del tablero
+function showBoardColorModal() {
+    document.getElementById('boardColorModal').style.display = 'block';
+}
+
+function closeBoardColorModal() {
+    document.getElementById('boardColorModal').style.display = 'none';
+}
+
+function hexToRgba(hex, alpha = 0.65) {
+    if (!hex || hex.toLowerCase() === 'transparent') {
+        return 'transparent';
+    }
+    let cleaned = hex.replace('#', '');
+    if (cleaned.length === 3) {
+        cleaned = cleaned.split('').map(c => c + c).join('');
+    }
+    if (cleaned.length !== 6) {
+        return 'transparent';
+    }
+    const r = parseInt(cleaned.substring(0, 2), 16);
+    const g = parseInt(cleaned.substring(2, 4), 16);
+    const b = parseInt(cleaned.substring(4, 6), 16);
+    if ([r, g, b].some(Number.isNaN)) {
+        return 'transparent';
+    }
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function setBoardColor(color) {
+    const csrftoken = getCSRFToken();
+    const formData = new FormData();
+    formData.append('csrfmiddlewaretoken', csrftoken);
+    formData.append('color', color);
+
+    fetch('{% url "kanban:change_board_color" %}', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': csrftoken
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const rgba = hexToRgba(color);
+            document.body.style.setProperty('--board-overlay-color', rgba);
+            alert('Color del tablero actualizado');
+            closeBoardColorModal();
+        } else {
+            alert(data.error || 'No se pudo cambiar el color');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error inesperado al cambiar el color');
+    });
+}
+
+function updateTaskDueDate(taskId, dueDate) {
+    if (!dueDate) {
+        alert('Selecciona una fecha válida');
+        return;
+    }
+
+    const csrftoken = getCSRFToken();
+    const formData = new FormData();
+    formData.append('csrfmiddlewaretoken', csrftoken);
+    formData.append('due_date', dueDate);
+
+    fetch(`/update-task/${taskId}/`, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': csrftoken
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (!data.success) {
+            alert(data.error || 'No se pudo actualizar la fecha');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error inesperado al actualizar la fecha');
+    });
+}
+
+function updateSubtaskDueDate(subtaskId, dueDate) {
+    if (!dueDate) {
+        alert('Selecciona una fecha válida');
+        return;
+    }
+
+    const csrftoken = getCSRFToken();
+    const formData = new FormData();
+    formData.append('csrfmiddlewaretoken', csrftoken);
+    formData.append('due_date', dueDate);
+
+    fetch(`/update-subtask/${subtaskId}/`, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': csrftoken
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (!data.success) {
+            alert(data.error || 'No se pudo actualizar la fecha de la subtarea');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error inesperado al actualizar la fecha de la subtarea');
+    });
+}
+
+// Funciones para actividades
+function showInvitationsModal() {
+    document.getElementById('invitationsModal').style.display = 'block';
+}
+
+  function closeInvitationsModal() {
+      document.getElementById('invitationsModal').style.display = 'none';
+  }
+  
+  // Funciones para actividades
+  function showActivitiesModal() {
+      document.getElementById('activitiesModal').style.display = 'block';
+      refreshActivities();
+  }
+  
+  function closeActivitiesModal() {
+      document.getElementById('activitiesModal').style.display = 'none';
+  }
+  
+  function refreshActivities() {
+      const csrftoken = getCSRFToken();
+      const activitiesList = document.getElementById('activitiesList');
+
+      if (!activitiesList) {
+          console.warn('No se encontró el contenedor de actividades.');
+          return;
+      }
+
+      fetch('{% url "kanban:get_activities" %}', {
+          method: 'GET',
+          cache: 'no-store',
+          credentials: 'same-origin',
+          headers: {
+              'X-CSRFToken': csrftoken
+          }
+      })
+      .then(response => response.json().then(data => ({ ok: response.ok, data })))
+      .then(({ ok, data }) => {
+          if (!ok || !data.success) {
+              const errorMsg = (data && data.error) ? data.error : 'No se pudo actualizar la lista de actividades.';
+              console.error('Error al obtener actividades:', errorMsg);
+              activitiesList.innerHTML = `<div class="activity-empty">${escapeHtml(errorMsg)}</div>`;
+              return;
+          }
+
+          if (!Array.isArray(data.activities) || data.activities.length === 0) {
+              activitiesList.innerHTML = '<div class="activity-empty">No hay actividades registradas</div>';
+          } else {
+              activitiesList.innerHTML = data.activities.map(activity => {
+                  const comments = Array.isArray(activity.comments) ? activity.comments : [];
+                  const commentsHtml = comments.length > 0
+                      ? comments.map(comment => `
+                          <div class="activity-comment">
+                              <div class="activity-comment-header">
+                                  <strong class="activity-comment-author">${escapeHtml(comment.author)}</strong>
+                                  <span class="activity-comment-time">${escapeHtml(comment.created_at)}</span>
+                              </div>
+                              <div class="activity-comment-text">${escapeHtml(comment.comment)}</div>
+                          </div>
+                      `).join('')
+                      : '<div class="activity-comment-empty">Sin comentarios</div>';
+
+                  const commentFormHtml = CAN_COMMENT ? `
+                      <div class="activity-comment-form">
+                          <textarea id="comment-input-${activity.id}" class="activity-comment-input" placeholder="Añade un comentario"></textarea>
+                          <button type="button" class="btn-submit" onclick="addActivityComment(${activity.id})">Comentar</button>
+                      </div>
+                  ` : '';
+
+                  return `
+                      <div class="activity-item">
+                          <div class="activity-header">
+                              <strong>${escapeHtml(activity.user)}</strong>
+                              <span class="activity-type">${escapeHtml(activity.activity_type)}</span>
+                          </div>
+                          <div class="activity-description">${escapeHtml(activity.description)}</div>
+                          ${activity.creator ? `<div class="activity-meta"><span class="activity-creator">Creado por: ${escapeHtml(activity.creator)}</span></div>` : ''}
+                          <div class="activity-time">${escapeHtml(activity.created_at)}</div>
+                          <div class="activity-comments">
+                              <h4>Comentarios (${comments.length})</h4>
+                              <div class="activity-comments-list">
+                                  ${commentsHtml}
+                              </div>
+                              ${commentFormHtml}
+                          </div>
+                      </div>
+                  `;
+              }).join('');
+          }
+
+      })
+      .catch(error => {
+          console.error('Error al obtener actividades:', error);
+          if (activitiesList) {
+              activitiesList.innerHTML = '<div class="activity-empty">No se pudieron cargar las actividades. Intenta nuevamente.</div>';
+          }
+      });
+  }
+
+function initActivitiesSocket() {
+    if (!CAN_VIEW_ACTIVITIES) {
+        console.log('[WebSocket] Deshabilitado: usuario no tiene permisos para ver actividades');
+        return;
+    }
+
+    // Cerrar conexión anterior si existe
+    if (activitiesSocket && activitiesSocket.readyState !== WebSocket.CLOSED) {
+        console.log('[WebSocket] Cerrando conexión anterior...');
+        activitiesSocket.close();
+    }
+
+    try {
+        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        const socketUrl = `${protocol}://${window.location.host}/ws/activities/`;
+        console.log('[WebSocket] Intentando conectar a:', socketUrl);
+        console.log('[WebSocket] Protocolo detectado:', window.location.protocol);
+        
+        activitiesSocket = new WebSocket(socketUrl);
+
+        activitiesSocket.onopen = () => {
+            console.log('[WebSocket] ✅ Conexión establecida exitosamente');
+            if (activitiesReconnectTimeout) {
+                clearTimeout(activitiesReconnectTimeout);
+                activitiesReconnectTimeout = null;
+            }
+            // Verificar que el contenedor de notificaciones exista
+            const container = document.getElementById('notifications-container');
+            if (!container) {
+                console.warn('[WebSocket] ⚠️ Contenedor de notificaciones no encontrado en el DOM');
+            } else {
+                console.log('[WebSocket] ✅ Contenedor de notificaciones encontrado');
+            }
+        };
+
+        activitiesSocket.onmessage = (event) => {
+            try {
+                const payload = JSON.parse(event.data);
+                console.log('[WebSocket] 📨 Mensaje recibido:', payload);
+                if (payload.type === 'activity') {
+                    console.log('[WebSocket] Mostrando notificación de actividad:', payload.activity_type);
+                    showActivityNotification(payload);
+                    // Refrescar la lista completa (solo si el modal está abierto)
+                    refreshActivities();
+                } else {
+                    console.warn('[WebSocket] Tipo de mensaje desconocido:', payload.type);
+                }
+            } catch (error) {
+                console.error('[WebSocket] ❌ Error al procesar mensaje:', error, 'Datos:', event.data);
+            }
+        };
+
+        activitiesSocket.onclose = (event) => {
+            console.log('[WebSocket] 🔌 Conexión cerrada. Código:', event.code, 'Razón:', event.reason || 'Sin razón especificada');
+            
+            // Códigos de cierre:
+            // 1000: Cierre normal
+            // 4001: Usuario no autenticado
+            // 4002: Error al aceptar conexión
+            // 4003: Channel layer no disponible
+            
+            if (event.code === 4001) {
+                console.error('[WebSocket] ❌ Error de autenticación. Asegúrate de estar logueado.');
+            } else if (event.code === 4002) {
+                console.error('[WebSocket] ❌ Error al aceptar conexión. Revisa los logs del servidor.');
+            } else if (event.code === 4003) {
+                console.error('[WebSocket] ❌ Channel layer no disponible. Verifica la configuración de CHANNEL_LAYERS.');
+            } else if (event.code === 1006) {
+                console.error('[WebSocket] ❌ Conexión cerrada anormalmente. El servidor puede no estar ejecutándose con Daphne (ASGI).');
+                console.error('[WebSocket] 💡 Solución: Ejecuta el servidor con: daphne -b 0.0.0.0 -p 8000 proyectofinal.asgi:application');
+            }
+            
+            // No reconectar si fue cerrado intencionalmente (código 1000) o por autenticación (4001)
+            if (event.code !== 1000 && event.code !== 4001 && event.code !== 4002 && event.code !== 4003) {
+                console.log('[WebSocket] 🔄 Reintentando conexión en 5 segundos...');
+                activitiesReconnectTimeout = setTimeout(initActivitiesSocket, 5000);
+            } else {
+                console.log('[WebSocket] ⏹️ No se reintentará la conexión (cerrada intencionalmente o por error crítico)');
+            }
+        };
+
+        activitiesSocket.onerror = (error) => {
+            console.error('[WebSocket] ❌ Error en WebSocket:', error);
+            console.error('[WebSocket] Estado actual:', activitiesSocket.readyState);
+            console.error('[WebSocket] URL:', activitiesSocket.url);
+            
+            // Estados: CONNECTING (0), OPEN (1), CLOSING (2), CLOSED (3)
+            const states = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'];
+            console.error('[WebSocket] Estado:', states[activitiesSocket.readyState] || 'DESCONOCIDO');
+            
+            if (activitiesSocket.readyState === WebSocket.CLOSED) {
+                console.error('[WebSocket] ⚠️ IMPORTANTE: El servidor debe ejecutarse con Daphne (ASGI) para que funcionen los WebSockets.');
+                console.error('[WebSocket] 💡 Comando: daphne -b 0.0.0.0 -p 8000 proyectofinal.asgi:application');
+                console.error('[WebSocket] 💡 O usa el script: run_server.bat (Windows) o run_server.sh (Linux/Mac)');
+            }
+        };
+    } catch (error) {
+        console.error('[WebSocket] ❌ Error al inicializar WebSocket:', error);
+        console.error('[WebSocket] Stack trace:', error.stack);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    initActivitiesSocket();
+});
+
+function showActivityNotification(payload) {
+    const container = document.getElementById('notifications-container');
+    if (!container) {
+        return;
+    }
+
+    const toast = document.createElement('div');
+    toast.className = 'notification-toast';
+
+    const header = document.createElement('div');
+    header.className = 'notification-header';
+
+    const title = document.createElement('div');
+    title.className = 'notification-title';
+    title.innerHTML = `🔔 ${escapeHtml(payload.activity_type || 'Actividad')}`;
+
+    const time = document.createElement('div');
+    time.className = 'notification-time';
+    time.textContent = payload.created_at || '';
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'notification-close';
+    closeBtn.innerHTML = '&times;';
+    closeBtn.addEventListener('click', () => {
+        container.removeChild(toast);
+    });
+
+    header.appendChild(title);
+    header.appendChild(time);
+    header.appendChild(closeBtn);
+
+    const body = document.createElement('div');
+    body.className = 'notification-body';
+    body.innerHTML = formatActivityMessage(payload);
+
+    toast.appendChild(header);
+    toast.appendChild(body);
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        if (toast.parentElement === container) {
+            container.removeChild(toast);
+        }
+    }, 6000);
+}
+
+function formatActivityMessage(activity) {
+    const user = escapeHtml(activity.user || 'Usuario');
+    const description = escapeHtml(activity.description || '');
+
+    let extra = '';
+    if (activity.task_title) {
+        extra += `<div><strong>Tarea:</strong> ${escapeHtml(activity.task_title)}</div>`;
+    }
+    if (activity.subtask_title) {
+        extra += `<div><strong>Subtarea:</strong> ${escapeHtml(activity.subtask_title)}</div>`;
+    }
+
+    return `<div><strong>${user}</strong></div><div>${description}</div>${extra}`;
+}
+
+  function addActivityComment(activityId) {
+      if (!CAN_COMMENT) {
+          return;
+      }
+
+      const textarea = document.getElementById(`comment-input-${activityId}`);
+      if (!textarea) {
+          console.error('No se encontró el campo de comentario para la actividad', activityId);
+          return;
+      }
+
+      const comment = textarea.value.trim();
+      if (!comment) {
+          alert('El comentario no puede estar vacío');
+          return;
+      }
+
+      const csrftoken = getCSRFToken();
+      const formData = new FormData();
+      formData.append('csrfmiddlewaretoken', csrftoken);
+      formData.append('comment', comment);
+
+      fetch(`/activities/${activityId}/comments/`, {
+          method: 'POST',
+          body: formData,
+          headers: {
+              'X-CSRFToken': csrftoken
+          }
+      })
+      .then(response => response.json().then(data => ({ ok: response.ok, data })))
+      .then(({ ok, data }) => {
+          if (ok && data.success) {
+              textarea.value = '';
+              refreshActivities();
+          } else {
+              const errorMessage = data && data.error ? data.error : 'No se pudo guardar el comentario';
+              alert(errorMessage);
+          }
+      })
+      .catch(error => {
+          console.error('Error:', error);
+          alert('Error inesperado al guardar el comentario');
+      });
+  }
+  
+  function sendInvitation() {
+    const studentId = document.getElementById('studentSelect').value;
+    if (!studentId) {
+        alert('Por favor seleccione un estudiante');
+        return;
+    }
+    
+    const formData = new FormData();
+    const csrftoken = getCSRFToken();
+    formData.append('csrfmiddlewaretoken', csrftoken);
+    formData.append('student_id', studentId);
+    
+    fetch('{% url "kanban:invite_student" %}', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': csrftoken
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            closeInviteModal();
+            location.reload();
+        } else {
+            alert('Error: ' + (data.error || 'Error desconocido'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error al enviar la invitación');
+    });
+}
+
+function acceptInvitation(invitationId) {
+    if (!confirm('¿Aceptar esta invitación? Podrás ver el tablero compartido.')) {
+        return;
+    }
+    
+    const formData = new FormData();
+    const csrftoken = getCSRFToken();
+    formData.append('csrfmiddlewaretoken', csrftoken);
+    
+    fetch(`/accept-invitation/${invitationId}/`, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': csrftoken
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            location.reload();
+        } else {
+            alert('Error: ' + (data.error || 'Error desconocido'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error al aceptar la invitación');
+    });
+}
+
+function rejectInvitation(invitationId) {
+    if (!confirm('¿Estás seguro de rechazar/cancelar esta invitación?')) {
+        return;
+    }
+    
+    const formData = new FormData();
+    const csrftoken = getCSRFToken();
+    formData.append('csrfmiddlewaretoken', csrftoken);
+    
+    fetch(`/reject-invitation/${invitationId}/`, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': csrftoken
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            location.reload();
+        } else {
+            alert('Error: ' + (data.error || 'Error desconocido'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error al rechazar la invitación');
+    });
+}
+
+  // Cerrar modales al hacer clic fuera
+  window.onclick = function(event) {
+      const addCardModal = document.getElementById('addCardModal');
+      const addListModal = document.getElementById('addListModal');
+      const editTaskModal = document.getElementById('editTaskModal');
+      const addSubtaskModal = document.getElementById('addSubtaskModal');
+      const editSubtaskModal = document.getElementById('editSubtaskModal');
+      const colorPickerModal = document.getElementById('colorPickerModal');
+      const inviteModal = document.getElementById('inviteModal');
+      const createUserModal = document.getElementById('createUserModal');
+      const boardColorModal = document.getElementById('boardColorModal');
+      const invitationsModal = document.getElementById('invitationsModal');
+      const activitiesModal = document.getElementById('activitiesModal');
+      
+      if (event.target == addCardModal) {
+          closeAddCardForm();
+      }
+      if (event.target == addListModal) {
+          closeAddListForm();
+      }
+      if (event.target == editTaskModal) {
+          closeEditTaskForm();
+      }
+      if (event.target == addSubtaskModal) {
+          closeAddSubtaskForm();
+      }
+      if (event.target == editSubtaskModal) {
+          closeEditSubtaskForm();
+      }
+      if (event.target == colorPickerModal) {
+          closeColorPickerModal();
+      }
+      if (inviteModal && event.target == inviteModal) {
+          closeInviteModal();
+      }
+      if (createUserModal && event.target == createUserModal) {
+          closeCreateUserModal();
+      }
+      if (boardColorModal && event.target == boardColorModal) {
+          closeBoardColorModal();
+      }
+      if (invitationsModal && event.target == invitationsModal) {
+          closeInvitationsModal();
+      }
+      if (activitiesModal && event.target == activitiesModal) {
+          closeActivitiesModal();
+      }
+  }
+
+function uploadBoardBackground() {
+    const input = document.getElementById('boardBackgroundInput');
+    if (!input || !input.files || !input.files[0]) {
+        alert('Selecciona una imagen antes de subir.');
+        return;
+    }
+
+    const imageFile = input.files[0];
+    const csrftoken = getCSRFToken();
+    const formData = new FormData();
+    formData.append('csrfmiddlewaretoken', csrftoken);
+    formData.append('image', imageFile);
+
+    fetch('{% url "kanban:upload_board_background" %}', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': csrftoken
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.body.style.setProperty('--board-background-image', `url('${data.image_url}')`);
+            alert('Imagen actualizada correctamente');
+            input.value = '';
+        } else {
+            alert(data.error || 'No se pudo subir la imagen');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error inesperado al subir la imagen');
+    });
+}
+ </script>
+ {% endblock %}
+

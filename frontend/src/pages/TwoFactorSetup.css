@@ -1,0 +1,249 @@
+.settings-container {
+  min-height: 100vh;
+  padding: 40px 20px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  background: #4c1d95; /* Fondo morado oscuro como en el backend */
+}
+
+.settings-box {
+  width: 100%;
+  max-width: 960px;
+  background: rgba(17, 25, 40, 0.6);
+  backdrop-filter: blur(18px);
+  border-radius: 20px;
+  padding: 32px;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.45);
+}
+
+.two-factor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.two-factor-header h1 {
+  font-size: 28px;
+  color: #fff;
+  margin: 0;
+  flex: 1;
+}
+
+.btn-back-board {
+  padding: 10px 20px;
+  background: #4c1d95;
+  color: white;
+  text-decoration: none;
+  border-radius: 4px;
+  transition: background 0.3s;
+  align-self: flex-start;
+}
+
+.btn-back-board:hover {
+  background: #5a2ba8;
+}
+
+.message {
+  padding: 12px 16px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+}
+
+.message-success {
+  background: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.message-error {
+  background: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.two-factor-status,
+.two-factor-actions {
+  margin-bottom: 32px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 16px;
+  padding: 24px;
+}
+
+.two-factor-status h2,
+.two-factor-actions h2 {
+  color: #fff;
+  margin-bottom: 16px;
+}
+
+.two-factor-status p,
+.two-factor-actions p {
+  color: rgba(255, 255, 255, 0.75);
+  margin-bottom: 10px;
+}
+
+.two-factor-status p strong {
+  color: #fff;
+}
+
+.two-factor-secret {
+  margin: 16px 0;
+}
+
+.two-factor-secret code {
+  display: inline-block;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 16px;
+  color: #fff;
+  letter-spacing: 1px;
+  word-break: break-all;
+}
+
+.two-factor-qr {
+  margin: 20px 0;
+  display: flex;
+  justify-content: center;
+}
+
+.two-factor-qr img {
+  width: 220px;
+  height: 220px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  padding: 12px;
+}
+
+.provisioning-uri {
+  margin-bottom: 12px;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.9em;
+  margin-top: 20px;
+}
+
+.provisioning-text {
+  width: 100%;
+  min-height: 80px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.3);
+  color: rgba(255, 255, 255, 0.85);
+  padding: 12px;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 0.9em;
+  resize: vertical;
+}
+
+.two-factor-actions form {
+  margin-bottom: 16px;
+}
+
+.two-factor-actions .inline-form {
+  display: inline-block;
+  margin-right: 12px;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.75);
+  font-weight: 500;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  font-size: 1.1em;
+  text-align: center;
+  letter-spacing: 0.2em;
+  background: rgba(0, 0, 0, 0.3);
+  color: #fff;
+}
+
+.form-group input::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: #4c1d95;
+  box-shadow: 0 0 0 2px rgba(76, 29, 149, 0.3);
+}
+
+.btn-submit,
+.btn-secondary,
+.btn-danger {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 4px;
+  font-size: 1em;
+  cursor: pointer;
+  margin-right: 10px;
+  margin-bottom: 10px;
+  transition: background 0.3s;
+}
+
+.btn-submit {
+  background: #4c1d95;
+  color: white;
+}
+
+.btn-submit:hover:not(:disabled) {
+  background: #5a2ba8;
+}
+
+.btn-submit:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: #6c757d;
+  color: white;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #5a6268;
+}
+
+.btn-secondary:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.btn-danger {
+  background: #dc3545;
+  color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #c82333;
+}
+
+.btn-danger:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.two-factor-help {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+}
+
+.loading {
+  text-align: center;
+  padding: 40px;
+  color: rgba(255, 255, 255, 0.75);
+}
