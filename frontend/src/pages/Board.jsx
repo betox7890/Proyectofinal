@@ -88,9 +88,16 @@ function Board() {
     }
 
     try {
+      // Conectar directamente al backend para WebSockets
+      // Usar localhost en lugar de 127.0.0.1 para que las cookies se envíen correctamente
       const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-      const socketUrl = `${protocol}://${window.location.host}/ws/activities/`;
+      // Usar localhost:8000 para que las cookies de sesión se envíen correctamente
+      const socketUrl = `${protocol}://localhost:8000/ws/activities/`;
       console.log('[WebSocket] Intentando conectar a:', socketUrl);
+      
+      // Obtener las cookies de sesión para enviarlas en el WebSocket
+      const cookies = document.cookie;
+      console.log('[WebSocket] Cookies disponibles:', cookies);
       
       const socket = new WebSocket(socketUrl);
       activitiesSocketRef.current = socket;
@@ -108,17 +115,23 @@ function Board() {
           const data = JSON.parse(event.data);
           console.log('[WebSocket] 📨 Mensaje recibido:', data);
           
-          // El mensaje puede venir directamente como payload o dentro de un objeto
-          const payload = data.payload || data;
-          
-          if (payload.type === 'activity' || data.type === 'activity_broadcast') {
-            const activityPayload = payload.payload || payload;
-            console.log('[WebSocket] Mostrando notificación de actividad:', activityPayload.activity_type || activityPayload.description);
-            showActivityNotification(activityPayload);
+          // El consumer envía el payload directamente, que tiene type: 'activity'
+          if (data.type === 'activity') {
+            console.log('[WebSocket] ✅ Tipo de mensaje correcto (activity)');
+            console.log('[WebSocket] Detalles:', {
+              activity_type: data.activity_type,
+              description: data.description,
+              user: data.user,
+              task_title: data.task_title,
+              list_name: data.list_name
+            });
+            showActivityNotification(data);
             // Refrescar la lista completa (solo si el modal está abierto)
             if (showActivitiesModal) {
               loadActivities();
             }
+          } else {
+            console.warn('[WebSocket] ⚠️ Mensaje con formato desconocido. Tipo recibido:', data.type, 'Datos completos:', data);
           }
         } catch (error) {
           console.error('[WebSocket] ❌ Error al procesar mensaje:', error, 'Datos:', event.data);
@@ -160,16 +173,24 @@ function Board() {
     
     // Obtener el tipo de actividad y el icono correspondiente
     const activityType = payload.activity_type || '';
+    const activityTypeLower = activityType.toLowerCase();
     let icon = '🔔';
-    if (activityType.includes('mover') || activityType.includes('move')) {
+    if (activityTypeLower.includes('mover') || activityTypeLower.includes('move')) {
       icon = '↔️';
-    } else if (activityType.includes('crear') || activityType.includes('create')) {
+    } else if (activityTypeLower.includes('crear') || activityTypeLower.includes('create')) {
       icon = '➕';
-    } else if (activityType.includes('editar') || activityType.includes('edit')) {
+    } else if (activityTypeLower.includes('editar') || activityTypeLower.includes('edit')) {
       icon = '✏️';
-    } else if (activityType.includes('eliminar') || activityType.includes('delete')) {
+    } else if (activityTypeLower.includes('eliminar') || activityTypeLower.includes('delete')) {
       icon = '🗑️';
     }
+    
+    console.log('[Notificación] Mostrando notificación:', {
+      activityType,
+      icon,
+      description: payload.description,
+      user: payload.user
+    });
 
     const header = document.createElement('div');
     header.className = 'notification-header';
@@ -286,6 +307,48 @@ function Board() {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Función para actualizar el tablero sin mostrar el estado de carga
+  const refreshBoardSilently = async () => {
+    try {
+      // Usar los filtros actuales
+      const filtersToUse = filters;
+      const params = {};
+      if (filtersToUse.q) params.q = filtersToUse.q;
+      if (filtersToUse.creator) params.creator = filtersToUse.creator;
+      if (filtersToUse.due_from) params.due_from = filtersToUse.due_from;
+      if (filtersToUse.due_to) params.due_to = filtersToUse.due_to;
+      
+      const response = await kanbanService.getBoard(params);
+      if (response.data.success) {
+        setLists(response.data.lists || []);
+        setUser(response.data.user);
+        setCanDelete(response.data.can_delete || false);
+        setPreferences(response.data.preferences || {});
+        setBoardColors(response.data.board_colors || []);
+        setBoardColor(response.data.board_color);
+        setBoardBackgroundImage(response.data.board_background_image);
+        setCreators(response.data.creators || []);
+        setStudents(response.data.students || []);
+        setPendingInvitations(response.data.pending_invitations || []);
+        setTwoFactorEnabled(response.data.two_factor_enabled || false);
+        setUserType(response.data.user_type || '');
+        setIsInvited(response.data.is_invited || false);
+        setCanViewActivities(response.data.can_view_activities || false);
+        setActivitiesHeading(response.data.activities_heading || 'Actividades');
+        setAttachmentMaxSizeMb(response.data.attachment_max_size_mb || 10);
+        setHasFilters(response.data.has_filters || false);
+        setTotalFilteredTasks(response.data.total_filtered_tasks || 0);
+      }
+    } catch (err) {
+      if (err.response?.status === 401) {
+        navigate('/login');
+      } else {
+        // No mostrar error en actualizaciones silenciosas para no interrumpir la experiencia
+        console.error('Error al actualizar el tablero:', err);
+      }
     }
   };
 
@@ -935,7 +998,7 @@ function Board() {
       try {
         const response = await kanbanService.moveTask(draggedTask.id, targetListId);
         if (response.data.success) {
-          loadBoard();
+          refreshBoardSilently();
         } else {
           setError(response.data.error || 'Error al mover la tarea');
         }
@@ -970,7 +1033,7 @@ function Board() {
     try {
       const response = await kanbanService.reorderTasks(targetListId, taskIds);
       if (response.data.success) {
-        loadBoard();
+        refreshBoardSilently();
       } else {
         setError(response.data.error || 'Error al reordenar las tareas');
       }

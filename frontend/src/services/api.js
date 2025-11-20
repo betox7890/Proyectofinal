@@ -27,6 +27,11 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Log detallado de errores para debugging
+    if (error.response?.status === 404) {
+      console.error('❌ Error 404 - Endpoint no encontrado:', error.config?.url);
+      console.error('Verifica que la ruta esté correcta y que el backend esté corriendo');
+    }
     if (error.response?.status === 401) {
       // Usuario no autenticado, redirigir a login
       window.location.href = '/login';
@@ -163,6 +168,10 @@ export const kanbanService = {
   
   sendCalendarReminders: (options) => {
     return api.post('/calendar/send-reminders/', options);
+  },
+  
+  getBoardUsersForReminders: () => {
+    return api.get('/api/board-users-for-reminders/');
   },
   
   // Adjuntos

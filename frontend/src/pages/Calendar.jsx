@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { kanbanService } from '../services/api';
+import emailjs from '@emailjs/browser';
 import './Calendar.css';
 
 function Calendar() {
@@ -16,6 +17,53 @@ function Calendar() {
     week: false
   });
   const [emailStatus, setEmailStatus] = useState('');
+  const [emailjsConfig, setEmailjsConfig] = useState({
+    serviceId: '',
+    templateId: '',
+    publicKey: ''
+  });
+  const [showEmailjsConfig, setShowEmailjsConfig] = useState(false);
+
+  useEffect(() => {
+    // Cargar configuración de EmailJS desde variables de entorno o localStorage
+    const envServiceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
+    const envTemplateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
+    const envPublicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
+    
+    // Priorizar variables de entorno sobre localStorage
+    if (envServiceId && envTemplateId && envPublicKey) {
+      const config = {
+        serviceId: envServiceId,
+        templateId: envTemplateId,
+        publicKey: envPublicKey
+      };
+      setEmailjsConfig(config);
+      // Inicializar EmailJS
+      try {
+        emailjs.init(envPublicKey);
+      } catch (initErr) {
+        console.error('Error al inicializar EmailJS:', initErr);
+      }
+    } else {
+      // Fallback a localStorage si no hay variables de entorno
+      const savedConfig = localStorage.getItem('emailjs_config');
+      if (savedConfig) {
+        try {
+          const config = JSON.parse(savedConfig);
+          setEmailjsConfig(config);
+          if (config.publicKey) {
+            try {
+              emailjs.init(config.publicKey);
+            } catch (initErr) {
+              console.error('Error al inicializar EmailJS:', initErr);
+            }
+          }
+        } catch (e) {
+          console.error('Error al cargar configuración EmailJS:', e);
+        }
+      }
+    }
+  }, []);
 
   useEffect(() => {
     // Aplicar clase board-page al body para el fondo con patrón
@@ -129,33 +177,254 @@ function Calendar() {
     }
   };
 
+  const formatEmailContent = (user, includeOverdue, include1_3Days, include4_7Days) => {
+    let content = `Hola ${user.full_name},\n\n`;
+    content += 'Este es un resumen de tus tareas y subtareas en el tablero Kanban:\n\n';
+    
+    // Tareas vencidas
+    if (includeOverdue && (user.overdue_tasks.length > 0 || user.overdue_subtasks.length > 0)) {
+      content += '[URGENTE] TAREAS Y SUBTAREAS VENCIDAS:\n\n';
+      
+      user.overdue_tasks.forEach(task => {
+        content += `  - Tarea: "${task.title}"\n`;
+        content += `    Lista: ${task.list_name}\n`;
+        content += `    Vencida hace ${task.days_overdue} dia(s)\n\n`;
+      });
+      
+      user.overdue_subtasks.forEach(subtask => {
+        content += `  - Subtarea: "${subtask.title}"\n`;
+        content += `    Tarea: "${subtask.task_title}"\n`;
+        content += `    Lista: ${subtask.list_name}\n`;
+        content += `    Vencida hace ${subtask.days_overdue} dia(s)\n\n`;
+      });
+    }
+    
+    // Tareas que vencen en 1-3 días
+    if (include1_3Days && (user.tasks_1_3_days.length > 0 || user.subtasks_1_3_days.length > 0)) {
+      content += 'TAREAS Y SUBTAREAS QUE VENCEN EN 1-3 DIAS:\n\n';
+      
+      user.tasks_1_3_days.forEach(task => {
+        content += `  - Tarea: "${task.title}"\n`;
+        content += `    Lista: ${task.list_name}\n`;
+        content += `    Vence en ${task.days_remaining} dia(s) (${task.due_date})\n\n`;
+      });
+      
+      user.subtasks_1_3_days.forEach(subtask => {
+        content += `  - Subtarea: "${subtask.title}"\n`;
+        content += `    Tarea: "${subtask.task_title}"\n`;
+        content += `    Lista: ${subtask.list_name}\n`;
+        content += `    Vence en ${subtask.days_remaining} dia(s) (${subtask.due_date})\n\n`;
+      });
+    }
+    
+    // Tareas que vencen en 4-7 días
+    if (include4_7Days && (user.tasks_4_7_days.length > 0 || user.subtasks_4_7_days.length > 0)) {
+      content += 'TAREAS Y SUBTAREAS QUE VENCEN EN 4-7 DIAS:\n\n';
+      
+      user.tasks_4_7_days.forEach(task => {
+        content += `  - Tarea: "${task.title}"\n`;
+        content += `    Lista: ${task.list_name}\n`;
+        content += `    Vence en ${task.days_remaining} dia(s) (${task.due_date})\n\n`;
+      });
+      
+      user.subtasks_4_7_days.forEach(subtask => {
+        content += `  - Subtarea: "${subtask.title}"\n`;
+        content += `    Tarea: "${subtask.task_title}"\n`;
+        content += `    Lista: ${subtask.list_name}\n`;
+        content += `    Vence en ${subtask.days_remaining} dia(s) (${subtask.due_date})\n\n`;
+      });
+    }
+    
+    content += '\nPor favor, revisa el tablero Kanban para asegurarte de que el trabajo este en curso.\n\n';
+    content += 'Saludos,\n';
+    content += 'Sistema de Gestion Kanban';
+    
+    return content;
+  };
+
   const handleSendEmail = async () => {
     if (!emailOptions.overdue && !emailOptions.soon && !emailOptions.week) {
       setEmailStatus('Por favor, selecciona al menos una opción de recordatorio.');
       return;
     }
 
-    setEmailStatus('⏳ Enviando recordatorios...');
+    // Verificar configuración de EmailJS (variables de entorno o localStorage)
+    const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID || emailjsConfig.serviceId;
+    const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || emailjsConfig.templateId;
+    const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || emailjsConfig.publicKey;
+
+    if (!serviceId || !templateId || !publicKey) {
+      setEmailStatus('❌ Error: Debes configurar EmailJS primero. Por favor, ingresa tus credenciales.');
+      setShowEmailjsConfig(true);
+      return;
+    }
+
+    setEmailStatus('⏳ Obteniendo usuarios del tablero...');
 
     try {
-      const response = await kanbanService.sendCalendarReminders({
-        overdue: emailOptions.overdue,
-        soon: emailOptions.soon,
-        week: emailOptions.week
+      // Obtener usuarios del tablero desde el API
+      const usersResponse = await kanbanService.getBoardUsersForReminders();
+      
+      if (!usersResponse || !usersResponse.data) {
+        setEmailStatus(`❌ Error: No se pudo conectar con el servidor. Verifica que el backend esté corriendo.`);
+        console.error('Error en respuesta del servidor:', usersResponse);
+        return;
+      }
+      
+      if (!usersResponse.data.success) {
+        setEmailStatus(`❌ Error: ${usersResponse.data.error || 'No se pudieron obtener los usuarios'}`);
+        return;
+      }
+
+      const users = usersResponse.data.users || [];
+      
+      if (users.length === 0) {
+        setEmailStatus('ℹ️ No hay usuarios con tareas pendientes para enviar recordatorios.');
+        return;
+      }
+
+      setEmailStatus(`⏳ Enviando correos a ${users.length} usuario(s)...`);
+
+      // Filtrar usuarios según las opciones seleccionadas
+      const usersToEmail = users.filter(user => {
+        if (emailOptions.overdue && (user.overdue_tasks.length > 0 || user.overdue_subtasks.length > 0)) {
+          return true;
+        }
+        if (emailOptions.soon && (user.tasks_1_3_days.length > 0 || user.subtasks_1_3_days.length > 0)) {
+          return true;
+        }
+        if (emailOptions.week && (user.tasks_4_7_days.length > 0 || user.subtasks_4_7_days.length > 0)) {
+          return true;
+        }
+        return false;
       });
 
-      if (response.data.success) {
-        setEmailStatus(`✅ ${response.data.message}${response.data.details ? '\n' + response.data.details : ''}`);
-        setTimeout(() => {
-          setShowEmailModal(false);
-          setEmailStatus('');
-        }, 3000);
-      } else {
-        setEmailStatus(`❌ Error: ${response.data.error || 'No se pudieron enviar los correos'}`);
+      if (usersToEmail.length === 0) {
+        setEmailStatus('ℹ️ No hay usuarios con tareas que cumplan los criterios seleccionados.');
+        return;
       }
+
+      // Obtener configuración de EmailJS desde variables de entorno o estado
+      const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID || emailjsConfig.serviceId;
+      const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || emailjsConfig.templateId;
+      const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || emailjsConfig.publicKey;
+
+      // Inicializar EmailJS
+      if (publicKey) {
+        try {
+          emailjs.init(publicKey);
+        } catch (initErr) {
+          console.error('Error al inicializar EmailJS:', initErr);
+          setEmailStatus('❌ Error al inicializar EmailJS. Verifica tu Public Key.');
+          return;
+        }
+      }
+
+      let emailsSent = 0;
+      let errors = 0;
+
+      // Enviar correo a cada usuario
+      for (const user of usersToEmail) {
+        try {
+          const emailContent = formatEmailContent(
+            user,
+            emailOptions.overdue,
+            emailOptions.soon,
+            emailOptions.week
+          );
+
+          const subject = user.overdue_tasks.length > 0 || user.overdue_subtasks.length > 0
+            ? '[URGENTE] Recordatorios de Tareas - Tablero Kanban'
+            : 'Recordatorios de Tareas - Tablero Kanban';
+
+          // Crear formulario oculto para usar sendForm como muestra la imagen
+          const form = document.createElement('form');
+          form.style.display = 'none';
+          
+          // Agregar campos al formulario
+          const toEmailInput = document.createElement('input');
+          toEmailInput.type = 'hidden';
+          toEmailInput.name = 'to_email';
+          toEmailInput.value = user.email;
+          form.appendChild(toEmailInput);
+
+          const toNameInput = document.createElement('input');
+          toNameInput.type = 'hidden';
+          toNameInput.name = 'to_name';
+          toNameInput.value = user.full_name;
+          form.appendChild(toNameInput);
+
+          const subjectInput = document.createElement('input');
+          subjectInput.type = 'hidden';
+          subjectInput.name = 'subject';
+          subjectInput.value = subject;
+          form.appendChild(subjectInput);
+
+          const messageInput = document.createElement('textarea');
+          messageInput.name = 'message';
+          messageInput.value = emailContent;
+          form.appendChild(messageInput);
+
+          const userNameInput = document.createElement('input');
+          userNameInput.type = 'hidden';
+          userNameInput.name = 'user_name';
+          userNameInput.value = user.full_name;
+          form.appendChild(userNameInput);
+
+          const totalTasksInput = document.createElement('input');
+          totalTasksInput.type = 'hidden';
+          totalTasksInput.name = 'total_tasks';
+          totalTasksInput.value = user.total_items;
+          form.appendChild(totalTasksInput);
+
+          // Agregar formulario al DOM temporalmente
+          document.body.appendChild(form);
+
+          // Enviar correo usando EmailJS sendForm (como muestra la imagen)
+          await emailjs.sendForm(
+            serviceId,
+            templateId,
+            form,
+            publicKey
+          );
+
+          // Remover formulario del DOM
+          document.body.removeChild(form);
+
+          emailsSent++;
+          console.log(`Correo enviado a ${user.email}`);
+        } catch (err) {
+          errors++;
+          console.error(`Error al enviar correo a ${user.email}:`, err);
+        }
+      }
+
+      const message = `Se enviaron ${emailsSent} correo(s) exitosamente.`;
+      const details = errors > 0 ? ` Hubo ${errors} error(es).` : '';
+      
+      setEmailStatus(`✅ ${message}${details}`);
+      setTimeout(() => {
+        setShowEmailModal(false);
+        setEmailStatus('');
+      }, 5000);
     } catch (err) {
-      setEmailStatus('❌ Error al enviar los correos. Por favor, intenta nuevamente.');
-      console.error(err);
+      console.error('Error completo:', err);
+      if (err.response) {
+        // Error de respuesta del servidor
+        if (err.response.status === 404) {
+          setEmailStatus('❌ Error 404: El endpoint no se encontró. Verifica que el backend esté corriendo y que la ruta /api/board-users-for-reminders/ esté disponible.');
+        } else if (err.response.status === 401) {
+          setEmailStatus('❌ Error: No estás autenticado. Por favor, inicia sesión nuevamente.');
+        } else {
+          setEmailStatus(`❌ Error del servidor (${err.response.status}): ${err.response.data?.error || err.message}`);
+        }
+      } else if (err.request) {
+        // Error de red
+        setEmailStatus('❌ Error: No se pudo conectar con el servidor. Verifica que el backend esté corriendo en http://localhost:8000');
+      } else {
+        // Otro tipo de error
+        setEmailStatus(`❌ Error al enviar los correos: ${err.message || 'Error desconocido'}`);
+      }
     }
   };
 
@@ -279,6 +548,84 @@ function Calendar() {
         </>
       )}
 
+      {/* Modal para configuración de EmailJS */}
+      {showEmailjsConfig && (
+        <div className="modal" onClick={(e) => e.target.className === 'modal' && setShowEmailjsConfig(false)}>
+          <div className="modal-content">
+            <span className="close" onClick={() => setShowEmailjsConfig(false)}>&times;</span>
+            <h3>⚙️ Configurar EmailJS</h3>
+            <div className="email-form">
+              <p className="email-description">
+                Para enviar correos desde el frontend, necesitas configurar EmailJS. 
+                Obtén tus credenciales desde <a href="https://www.emailjs.com/" target="_blank" rel="noopener noreferrer">emailjs.com</a>
+              </p>
+              
+              <div className="email-options">
+                <label className="email-option">
+                  <span>Service ID:</span>
+                  <input
+                    type="text"
+                    value={emailjsConfig.serviceId}
+                    onChange={(e) => setEmailjsConfig({...emailjsConfig, serviceId: e.target.value})}
+                    placeholder="service_xxxxxxx"
+                  />
+                </label>
+                <label className="email-option">
+                  <span>Template ID:</span>
+                  <input
+                    type="text"
+                    value={emailjsConfig.templateId}
+                    onChange={(e) => setEmailjsConfig({...emailjsConfig, templateId: e.target.value})}
+                    placeholder="template_xxxxxxx"
+                  />
+                </label>
+                <label className="email-option">
+                  <span>Public Key:</span>
+                  <input
+                    type="text"
+                    value={emailjsConfig.publicKey}
+                    onChange={(e) => setEmailjsConfig({...emailjsConfig, publicKey: e.target.value})}
+                    placeholder="xxxxxxxxxxxxx"
+                  />
+                </label>
+              </div>
+
+              <div className="email-actions">
+                <button type="button" className="btn-submit" onClick={() => {
+                  if (!emailjsConfig.serviceId || !emailjsConfig.templateId || !emailjsConfig.publicKey) {
+                    setEmailStatus('❌ Por favor, completa todos los campos.');
+                    return;
+                  }
+                  try {
+                    localStorage.setItem('emailjs_config', JSON.stringify(emailjsConfig));
+                    if (emailjsConfig.publicKey) {
+                      try {
+                        emailjs.init(emailjsConfig.publicKey);
+                      } catch (initErr) {
+                        console.error('Error al inicializar EmailJS:', initErr);
+                        setEmailStatus('❌ Error al inicializar EmailJS. Verifica tu Public Key.');
+                        return;
+                      }
+                    }
+                    setShowEmailjsConfig(false);
+                    setEmailStatus('✅ Configuración guardada exitosamente.');
+                    setTimeout(() => setEmailStatus(''), 3000);
+                  } catch (err) {
+                    console.error('Error al guardar configuración EmailJS:', err);
+                    setEmailStatus('❌ Error al guardar la configuración. Por favor, verifica los datos.');
+                  }
+                }}>
+                  💾 Guardar Configuración
+                </button>
+                <button type="button" className="btn-cancel" onClick={() => setShowEmailjsConfig(false)}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal para envío de correos */}
       {showEmailModal && (
         <div className="modal" onClick={(e) => e.target.className === 'modal' && setShowEmailModal(false)}>
@@ -287,7 +634,7 @@ function Calendar() {
             <h3>📧 Enviar Recordatorios por Correo</h3>
             <div className="email-form">
               <p className="email-description">
-                Selecciona qué tipo de recordatorios deseas enviar. Los correos se enviarán a los responsables de las tareas y subtareas.
+                Selecciona qué tipo de recordatorios deseas enviar. Los correos se enviarán a todos los usuarios con acceso al tablero.
               </p>
               
               <div className="email-options">
@@ -323,6 +670,9 @@ function Calendar() {
                 </button>
                 <button type="button" className="btn-cancel" onClick={() => { setShowEmailModal(false); setEmailStatus(''); }}>
                   Cancelar
+                </button>
+                <button type="button" className="btn-cancel" onClick={() => setShowEmailjsConfig(true)} style={{ marginLeft: '10px' }}>
+                  ⚙️ Configurar EmailJS
                 </button>
               </div>
 

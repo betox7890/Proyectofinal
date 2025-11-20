@@ -36,6 +36,13 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      // Proxy para WebSockets
+      '/ws': {
+        target: 'ws://127.0.0.1:8000',
+        ws: true,
+        changeOrigin: true,
+        secure: false,
+      },
     },
   },
 })

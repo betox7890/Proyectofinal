@@ -207,7 +207,7 @@ body.board-page::after {
 }
 
 .btn-logout {
-    padding: 10px 20px;
+    padding: 10px 24px;
     background: #8b2e2e;
     color: #fff;
     text-decoration: none;
@@ -219,6 +219,14 @@ body.board-page::after {
     white-space: nowrap;
     display: inline-block;
     font-weight: 500;
+    min-width: 200px;
+    width: auto;
+    text-align: center;
+    overflow: visible;
+    text-overflow: clip;
+    box-sizing: border-box;
+    flex-shrink: 0;
+    line-height: 1.4;
 }
 
 .btn-logout:hover {
