@@ -221,10 +221,25 @@ function Login({ onLogin }) {
         console.warn('⚠️ Cookie de sesión NO presente antes de enviar');
       }
 
+      // Obtener la URL base de la API (reutilizar la función)
+      const getApiBaseUrl = () => {
+        if (import.meta.env.VITE_API_BASE_URL) {
+          return import.meta.env.VITE_API_BASE_URL;
+        }
+        if (window.location.hostname === 'heiner2001.github.io') {
+          return 'https://kanban-backend.onrender.com';
+        }
+        return '';
+      };
+      
+      const apiBase = getApiBaseUrl();
+      const loginUrl = apiBase ? `${apiBase}/api/login/` : '/api/login/';
+      
+      console.log('Intentando conectar a (2FA):', loginUrl);
+      
       // OBLIGATORIO: credentials/include es necesario para que las cookies se envíen
-      // Usar ruta relativa - Vite proxy redirige al backend
       const response = await axios.post(
-        '/api/login/',
+        loginUrl,
         requestData,
         {
           withCredentials: true,  // NECESARIO: Sin esto, la cookie jamás llega a React
