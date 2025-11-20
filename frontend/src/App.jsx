@@ -13,9 +13,9 @@ function App() {
 
   // Obtener el base path para GitHub Pages
   const getBasePath = () => {
-    // En producción (GitHub Pages), usar /ProyectoFinal/
-    if (window.location.hostname === 'heiner2001.github.io') {
-      return '/ProyectoFinal';
+    // En producción (GitHub Pages), usar /Proyectofinal/
+    if (window.location.hostname.includes('github.io')) {
+      return '/Proyectofinal';
     }
     // En desarrollo, usar /
     return '';
@@ -31,9 +31,9 @@ function App() {
   const checkAuth = async () => {
     try {
       // Intentar obtener información del usuario
-      // En producción, usar URL completa del backend
-      const apiBase = window.location.hostname === 'heiner2001.github.io' 
-        ? 'https://kanban-backend-9wbt.onrender.com' 
+      // En producción, usar URL completa del backend (Railway)
+      const apiBase = window.location.hostname.includes('github.io') 
+        ? 'https://proyectofinal-production-bfac.up.railway.app' 
         : '';
       const response = await fetch(`${apiBase}/api/user/`, {
         credentials: 'include',
