@@ -4,8 +4,8 @@
 // En desarrollo → usar "http://localhost:8000"
 const getApiBaseUrl = () => {
   if (window.location.host.includes('github.io')) {
-    // URL de Railway - actualizar con tu URL real
-    return 'https://web-production-61c3.up.railway.app';
+    // URL de Railway
+    return 'https://proyectofinal-production-bfac.up.railway.app';
   }
   if (import.meta.env.VITE_API_BASE_URL) {
     return import.meta.env.VITE_API_BASE_URL;
