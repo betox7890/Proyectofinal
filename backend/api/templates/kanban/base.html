@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Kanban Board{% endblock %}</title>
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'kanban/css/style.css' %}">
+</head>
+<body class="{% block body_class %}{% endblock %}" style="{% block body_style %}{% endblock %}">
+    {% block content %}{% endblock %}
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
+

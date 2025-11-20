@@ -1,7 +1,19 @@
 // Configuración de la API
-// En producción: usa la variable de entorno VITE_API_BASE_URL
-// En desarrollo: usa ruta relativa para que Vite proxy redirija al backend
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://kanban-backend-9wbt.onrender.com');
+// Si window.location.host incluye "github.io" → usar Railway
+// Si existe import.meta.env.VITE_API_BASE_URL → usar esa
+// En desarrollo → usar "http://localhost:8000"
+const getApiBaseUrl = () => {
+  if (window.location.host.includes('github.io')) {
+    // URL de Railway - actualizar con tu URL real
+    return 'https://web-production-61c3.up.railway.app';
+  }
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+  return 'http://localhost:8000';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 export const API_CONFIG = {
   baseURL: API_BASE_URL,
