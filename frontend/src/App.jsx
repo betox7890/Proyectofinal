@@ -30,11 +30,9 @@ function App() {
 
   const checkAuth = async () => {
     try {
-      // Intentar obtener información del usuario
-      // En producción, usar URL completa del backend (Railway)
-      const apiBase = window.location.hostname.includes('github.io') 
-        ? 'https://proyectofinal-production-bfac.up.railway.app' 
-        : '';
+      // Usar el servicio de API configurado
+      const { API_CONFIG } = await import('./config/api.js');
+      const apiBase = API_CONFIG.baseURL;
       const response = await fetch(`${apiBase}/api/user/`, {
         credentials: 'include',
         headers: {

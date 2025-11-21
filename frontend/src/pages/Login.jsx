@@ -60,9 +60,9 @@ function Login({ onLogin }) {
         if (import.meta.env.VITE_API_BASE_URL) {
           return import.meta.env.VITE_API_BASE_URL;
         }
-        // En producción (GitHub Pages), usar URL completa del backend
-        if (window.location.hostname === 'heiner2001.github.io') {
-          return 'https://kanban-backend-9wbt.onrender.com';
+        // En producción (GitHub Pages), usar URL completa del backend (Railway)
+        if (window.location.hostname.includes('github.io')) {
+          return 'https://proyectofinal-production-bfac.up.railway.app';
         }
         // En desarrollo, usar ruta relativa (proxy de Vite)
         return '';
@@ -243,8 +243,8 @@ function Login({ onLogin }) {
         if (import.meta.env.VITE_API_BASE_URL) {
           return import.meta.env.VITE_API_BASE_URL;
         }
-        if (window.location.hostname === 'heiner2001.github.io') {
-          return 'https://kanban-backend-9wbt.onrender.com';
+        if (window.location.hostname.includes('github.io')) {
+          return 'https://proyectofinal-production-bfac.up.railway.app';
         }
         return '';
       };
