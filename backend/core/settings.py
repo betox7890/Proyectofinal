@@ -82,7 +82,7 @@ ASGI_APPLICATION = 'core.asgi.application'
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
 # Configuración de base de datos
-# En producción (Render): usar PostgreSQL si DATABASE_URL está disponible
+# En producción: usar PostgreSQL si DATABASE_URL está disponible
 # En desarrollo: usar SQLite
 DATABASES = {
     'default': dj_database_url.config(
