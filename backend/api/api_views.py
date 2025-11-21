@@ -1,4 +1,4 @@
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
@@ -8,10 +8,9 @@ from django.utils import timezone
 from django.contrib.auth import authenticate, login
 from django.conf import settings
 from django.http import HttpResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
 from datetime import datetime, timedelta
 import json
+from .authentication import CsrfExemptSessionAuthentication
 
 from .models import List, Task, Subtask, Activity, ActivityComment, Invitation, BoardPreference, TaskAttachment, SubtaskAttachment, TwoFactorProfile
 from .serializers import (
@@ -47,7 +46,7 @@ def api_user(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-@csrf_exempt
+@authentication_classes([CsrfExemptSessionAuthentication])
 def api_login(request):
     """
     Endpoint API para login - Replica EXACTAMENTE el flujo del backend tradicional
