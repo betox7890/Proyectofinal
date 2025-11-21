@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/Proyectofinal/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>frontend</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // GitHub Pages fallback: cargar los assets del build actual
+      // Los nombres de archivo cambiarán en cada build, así que usamos una búsqueda dinámica
+      const basePath = '/Proyectofinal';
+      const scripts = document.getElementsByTagName('script');
+      const links = document.getElementsByTagName('link');
+      
+      // Buscar el script y CSS en el index.html real
+      fetch(basePath + '/index.html')
+        .then(response => response.text())
+        .then(html => {
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(html, 'text/html');
+          const scriptTag = doc.querySelector('script[type="module"]');
+          const linkTag = doc.querySelector('link[rel="stylesheet"]');
+          
+          if (scriptTag) {
+            const script = document.createElement('script');
+            script.type = 'module';
+            script.crossOrigin = 'anonymous';
+            script.src = scriptTag.src;
+            document.body.appendChild(script);
+          }
+          
+          if (linkTag) {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.crossOrigin = 'anonymous';
+            link.href = linkTag.href;
+            document.head.appendChild(link);
+          }
+        })
+        .catch(() => {
+          // Si falla, redirigir al index.html
+          window.location.replace(basePath + '/index.html');
+        });
+    </script>
+  </body>
+</html>
