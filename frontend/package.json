@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:render": "cp vite.config.render.js vite.config.js && vite build && cp vite.config.github.js vite.config.js",
-    "build:github": "cp vite.config.github.js vite.config.js && vite build",
+    "build:render": "node build-render.js",
+    "build:github": "node build-github.js",
     "postbuild": "node -e \"const fs = require('fs'); fs.copyFileSync('dist/index.html', 'dist/404.html');\"",
     "lint": "eslint .",
     "preview": "vite preview",
