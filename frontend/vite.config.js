@@ -3,7 +3,8 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
-  base: "/Proyectofinal/",
+  // En desarrollo: usar "/", en producción se cambia a "/Proyectofinal/" con build-github.js
+  base: "/",
   server: { port: 5173 }
 });
 
