@@ -8,6 +8,8 @@ from django.utils import timezone
 from django.contrib.auth import authenticate, login
 from django.conf import settings
 from django.http import HttpResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 from datetime import datetime, timedelta
 import json
 
@@ -45,6 +47,7 @@ def api_user(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@csrf_exempt
 def api_login(request):
     """
     Endpoint API para login - Replica EXACTAMENTE el flujo del backend tradicional
