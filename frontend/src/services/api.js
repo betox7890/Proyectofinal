@@ -27,15 +27,33 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    // Log detallado de errores para debugging
-    if (error.response?.status === 404) {
-      console.error('❌ Error 404 - Endpoint no encontrado:', error.config?.url);
-      console.error('Verifica que la ruta esté correcta y que el backend esté corriendo');
+    // No loguear errores esperados (400, 401) en producción
+    const status = error.response?.status;
+    const url = error.config?.url;
+    
+    // 400 y 401 son normales cuando no hay sesión, no son errores críticos
+    if (status === 400 || status === 401) {
+      // Solo log en desarrollo
+      if (import.meta.env.DEV) {
+        console.debug(`Expected response ${status} for ${url} (no active session)`);
+      }
+      return Promise.reject(error);
     }
-    if (error.response?.status === 401) {
-      // Usuario no autenticado, redirigir a login
-      window.location.href = '/login';
+    
+    // Log detallado de errores reales para debugging
+    if (status === 404) {
+      if (import.meta.env.DEV) {
+        console.error('❌ Error 404 - Endpoint no encontrado:', url);
+        console.error('Verifica que la ruta esté correcta y que el backend esté corriendo');
+      }
     }
+    
+    if (status === 401 && url && !url.includes('/api/user/')) {
+      // Usuario no autenticado, redirigir a login (excepto para /api/user/ que es normal)
+      const basePath = window.location.hostname.includes('github.io') ? '/Proyectofinal' : '';
+      window.location.href = basePath + '/login';
+    }
+    
     return Promise.reject(error);
   }
 );

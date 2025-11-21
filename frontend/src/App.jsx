@@ -39,12 +39,26 @@ function App() {
           'Content-Type': 'application/json',
         },
       });
+      
+      // 400 y 401 son normales si no hay sesión, no son errores críticos
       if (response.ok) {
         const data = await response.json();
         setIsAuthenticated(data.authenticated || false);
+      } else if (response.status === 400 || response.status === 401) {
+        // No hay sesión activa, es normal
+        setIsAuthenticated(false);
+      } else {
+        // Otro error, log solo en desarrollo
+        if (import.meta.env.DEV) {
+          console.warn('Error checking auth:', response.status, response.statusText);
+        }
+        setIsAuthenticated(false);
       }
     } catch (error) {
-      console.error('Error checking auth:', error);
+      // Error de red o CORS, solo log en desarrollo
+      if (import.meta.env.DEV) {
+        console.error('Error checking auth:', error);
+      }
       setIsAuthenticated(false);
     } finally {
       setLoading(false);

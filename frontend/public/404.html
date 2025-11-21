@@ -5,45 +5,20 @@
     <link rel="icon" type="image/svg+xml" href="/Proyectofinal/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>frontend</title>
+    <script>
+      // GitHub Pages fallback: redirigir al index.html para que React Router maneje las rutas
+      // Esto es necesario porque GitHub Pages no soporta client-side routing nativamente
+      const path = window.location.pathname;
+      const basePath = '/Proyectofinal';
+      
+      // Si no estamos en index.html, redirigir
+      if (!path.endsWith('/index.html') && !path.endsWith('/')) {
+        const newPath = basePath + '/index.html' + window.location.search + window.location.hash;
+        window.location.replace(newPath);
+      }
+    </script>
   </head>
   <body>
-    <div id="root"></div>
-    <script>
-      // GitHub Pages fallback: cargar los assets del build actual
-      // Los nombres de archivo cambiarán en cada build, así que usamos una búsqueda dinámica
-      const basePath = '/Proyectofinal';
-      const scripts = document.getElementsByTagName('script');
-      const links = document.getElementsByTagName('link');
-      
-      // Buscar el script y CSS en el index.html real
-      fetch(basePath + '/index.html')
-        .then(response => response.text())
-        .then(html => {
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(html, 'text/html');
-          const scriptTag = doc.querySelector('script[type="module"]');
-          const linkTag = doc.querySelector('link[rel="stylesheet"]');
-          
-          if (scriptTag) {
-            const script = document.createElement('script');
-            script.type = 'module';
-            script.crossOrigin = 'anonymous';
-            script.src = scriptTag.src;
-            document.body.appendChild(script);
-          }
-          
-          if (linkTag) {
-            const link = document.createElement('link');
-            link.rel = 'stylesheet';
-            link.crossOrigin = 'anonymous';
-            link.href = linkTag.href;
-            document.head.appendChild(link);
-          }
-        })
-        .catch(() => {
-          // Si falla, redirigir al index.html
-          window.location.replace(basePath + '/index.html');
-        });
-    </script>
+    <div id="root">Cargando...</div>
   </body>
 </html>
