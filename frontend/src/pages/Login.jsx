@@ -73,34 +73,8 @@ function Login({ onLogin }) {
       
       console.log('Intentando conectar a:', loginUrl);
 
-      // Obtener token CSRF primero (si no existe en cookies)
-      let csrfToken = getCookie('csrftoken');
-      if (!csrfToken) {
-        try {
-          // Hacer una petición GET para obtener el token CSRF
-          const csrfResponse = await fetch(apiBase ? `${apiBase}/api/user/` : '/api/user/', {
-            method: 'GET',
-            credentials: 'include',
-          });
-          // El token CSRF debería estar en las cookies después de esta petición
-          csrfToken = getCookie('csrftoken');
-          console.log('Token CSRF obtenido:', csrfToken ? 'Sí' : 'No');
-        } catch (err) {
-          console.warn('No se pudo obtener token CSRF, continuando sin él:', err);
-        }
-      }
-
-      // Preparar headers
-      const headers = {
-        'Content-Type': 'application/json',
-      };
-      
-      // Agregar token CSRF si está disponible
-      if (csrfToken) {
-        headers['X-CSRFToken'] = csrfToken;
-      }
-
       // OBLIGATORIO: credentials/include es necesario para que las cookies se envíen
+      // El endpoint de login no requiere CSRF token (está exento)
       const response = await axios.post(
         loginUrl,
         {
@@ -110,7 +84,9 @@ function Login({ onLogin }) {
         },
         {
           withCredentials: true,  // NECESARIO: Sin esto, la cookie jamás llega a React
-          headers: headers,
+          headers: {
+            'Content-Type': 'application/json',
+          },
         }
       );
 
