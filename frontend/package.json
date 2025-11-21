@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:render": "cp vite.config.render.js vite.config.js && vite build && cp vite.config.github.js vite.config.js",
+    "build:github": "cp vite.config.github.js vite.config.js && vite build",
     "postbuild": "node -e \"const fs = require('fs'); fs.copyFileSync('dist/index.html', 'dist/404.html');\"",
     "lint": "eslint .",
     "preview": "vite preview",
-    "predeploy": "npm run build",
+    "predeploy": "npm run build:github",
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {

@@ -1,15 +1,23 @@
 // Configuración de la API
-// Si window.location.host incluye "github.io" → usar Railway
-// Si existe import.meta.env.VITE_API_BASE_URL → usar esa
-// En desarrollo → usar "http://localhost:8000"
+// Prioridad:
+// 1. Variable de entorno VITE_API_BASE_URL (para Render, Vercel, etc.)
+// 2. Render.com → usar backend de Render
+// 3. GitHub Pages → usar Railway
+// 4. Desarrollo local → localhost:8000
 const getApiBaseUrl = () => {
-  if (window.location.host.includes('github.io')) {
-    // URL de Railway
-    return 'https://proyectofinal-production-bfac.up.railway.app';
-  }
+  // Variable de entorno (tiene prioridad)
   if (import.meta.env.VITE_API_BASE_URL) {
     return import.meta.env.VITE_API_BASE_URL;
   }
+  // Render.com
+  if (window.location.host.includes('render.com')) {
+    return 'https://proyectofinal-backend.onrender.com';
+  }
+  // GitHub Pages
+  if (window.location.host.includes('github.io')) {
+    return 'https://proyectofinal-production-bfac.up.railway.app';
+  }
+  // Desarrollo local
   return 'http://localhost:8000';
 };
 
