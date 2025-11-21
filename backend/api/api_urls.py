@@ -69,5 +69,8 @@ urlpatterns = [
     # Recordatorios
     path('send-board-reminders/', api_views.api_send_board_reminders, name='send_board_reminders'),
     path('board-users-for-reminders/', api_views.api_get_board_users_for_reminders, name='get_board_users_for_reminders'),
+    
+    # Debug/Admin (temporal)
+    path('check-users/', api_views.api_check_users, name='check_users'),
 ]
 

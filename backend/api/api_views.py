@@ -2030,3 +2030,42 @@ def api_send_board_reminders(request):
             'success': False,
             'error': f'Error al enviar recordatorios: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def api_check_users(request):
+    """
+    Endpoint temporal para verificar usuarios en la base de datos.
+    Útil para debugging y verificar si el usuario admin existe.
+    """
+    from django.contrib.auth.models import User
+    
+    try:
+        users = User.objects.all().values('id', 'username', 'email', 'is_superuser', 'is_staff', 'is_active', 'date_joined')
+        users_list = list(users)
+        
+        # Verificar específicamente si admin existe
+        admin_exists = User.objects.filter(username='admin').exists()
+        admin_info = None
+        if admin_exists:
+            admin_user = User.objects.get(username='admin')
+            admin_info = {
+                'username': admin_user.username,
+                'email': admin_user.email,
+                'is_superuser': admin_user.is_superuser,
+                'is_active': admin_user.is_active,
+                'date_joined': admin_user.date_joined.isoformat() if admin_user.date_joined else None
+            }
+        
+        return Response({
+            'total_users': len(users_list),
+            'admin_exists': admin_exists,
+            'admin_info': admin_info,
+            'all_users': users_list
+        })
+    except Exception as e:
+        logger.error(f"Error al verificar usuarios: {str(e)}")
+        return Response({
+            'error': f'Error al verificar usuarios: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
